@@ -1,0 +1,54 @@
+/* Reel — QSS template.
+   $placeholders are substituted from reel/style/tokens.py (see style/__init__.py).
+   Never hardcode a color here; add a token instead. */
+
+QWidget {
+    font-family: "$FONT_FAMILY";
+    color: $TEXT;
+    outline: 0;
+}
+
+QMainWindow {
+    background: $BG;
+}
+
+/* video surface: pure black until the native HWND paints over it */
+#Surface {
+    background: $VIDEO_BG;
+}
+
+#EmptyHint {
+    color: $TEXT_FAINT;
+    font-size: ${FS_TIME}px;
+}
+
+QToolTip {
+    background: $TITLEBAR;
+    color: $TEXT;
+    border: 1px solid #2a3138;
+    border-radius: ${RADIUS_CTL}px;
+    padding: 4px 8px;
+    font-size: ${FS_TITLE}px;
+}
+
+QMenu {
+    background: $TITLEBAR;
+    color: $TEXT;
+    border: 1px solid #23282e;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 5px 18px;
+    border-radius: ${RADIUS_CTL}px;
+}
+
+QMenu::item:selected {
+    background: $BTN_HOVER;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #23282e;
+    margin: 4px 8px;
+}

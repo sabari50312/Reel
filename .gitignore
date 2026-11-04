@@ -10,3 +10,5 @@ wheels/
 .venv
 mockup
 testdata/
+# CocoIndex Code (ccc)
+/.cocoindex_code/

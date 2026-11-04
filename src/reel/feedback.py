@@ -28,7 +28,7 @@ from PySide6.QtCore import (
     QTimer,
     Qt,
 )
-from PySide6.QtGui import QColor, QPainter, QPaintEvent
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPaintEvent
 from PySide6.QtWidgets import QMainWindow, QWidget
 
 from .style import tokens
@@ -65,6 +65,7 @@ class Feedback(QWidget):
         self._icon = ""
         self._fraction = 0.0
         self._text = ""
+        self._suppressed = False
 
         self._fade = QPropertyAnimation(self, b"alpha", self)
         self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -77,10 +78,31 @@ class Feedback(QWidget):
         host.installEventFilter(self)
 
     # ------------------------------------------------------------------- sugar
+    def set_suppressed(self, suppressed: bool) -> None:
+        """Hide the flash and ignore new ones while another window is in front.
+
+        The flash is a topmost layered window; without this its disc and volume
+        pill hang over the settings dialog.
+        """
+        self._suppressed = suppressed
+        if not suppressed:
+            return
+        self._hold.stop()
+        self._fade.stop()
+        self._target = 0.0
+        self._alpha = 0.0
+        self.hide()
+
     def show_icon(self, icon: str) -> None:
         """Centre disc, e.g. the mute state after M."""
         self._mode = "icon"
         self._icon = icon
+        self._present()
+
+    def show_text(self, text: str) -> None:
+        """Bottom-centre caption chip, e.g. the playback speed after ], [ or =."""
+        self._mode = "text"
+        self._text = text
         self._present()
 
     def show_level(self, icon: str, fraction: float, text: str) -> None:
@@ -111,6 +133,8 @@ class Feedback(QWidget):
         when the window is not already fully visible, and the repaint is explicit
         because new content does not move the alpha property.
         """
+        if self._suppressed:
+            return
         self._hold.stop()
         target = QRect(self._host.mapToGlobal(QPoint(0, 0)), self._host.size())
         if self.geometry() != target:
@@ -164,6 +188,8 @@ class Feedback(QWidget):
             self._paint_disc(painter)
         elif self._mode == "level":
             self._paint_pill(painter)
+        elif self._mode == "text":
+            self._paint_chip(painter)
         painter.end()
 
     def _paint_disc(self, painter: QPainter) -> None:
@@ -176,11 +202,28 @@ class Feedback(QWidget):
         icon_rect = QRectF(centre.x() - side, centre.y() - side, side * 2, side * 2)
         paint_icon(painter, self._icon, icon_rect, tokens.TEXT, stroke=2.2)
 
+    def _paint_chip(self, painter: QPainter) -> None:
+        """Rounded label near the bottom edge, above where the strip sits."""
+        font = painter.font()
+        font.setPixelSize(15)
+        font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(self._text) + 32
+        height = 38
+        x = (self.width() - width) / 2.0
+        y = self.height() - tokens.BAR_H - 52 - height
+        painter.setPen(QPen(QColor(tokens.BAR_BORDER), 1.0))
+        painter.setBrush(QColor(tokens.MENU_BG))
+        painter.drawRoundedRect(QRectF(x, y, width, height), 12.0, 12.0)
+        painter.setPen(QColor(tokens.TEXT))
+        painter.drawText(QRectF(x, y, width, height), Qt.AlignmentFlag.AlignCenter, self._text)
+
     def _paint_pill(self, painter: QPainter) -> None:
         x = self.width() - _PILL_MARGIN - tokens.PILL_W
         y = (self.height() - tokens.PILL_H) / 2.0
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 128))
+        painter.setPen(QPen(QColor(tokens.BAR_BORDER), 1.0))
+        painter.setBrush(QColor(tokens.MENU_BG))
         painter.drawRoundedRect(
             QRectF(x, y, tokens.PILL_W, tokens.PILL_H), tokens.PILL_W / 2.0, tokens.PILL_W / 2.0
         )

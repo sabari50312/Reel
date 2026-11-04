@@ -17,8 +17,14 @@ Two hard rules enforced here:
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt, Signal
-from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter
+from PySide6.QtCore import QPoint, QRect, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QMouseEvent,
+    QPaintEvent,
+    QPainter,
+)
 from PySide6.QtWidgets import QWidget
 
 from .style import tokens
@@ -29,6 +35,7 @@ class VideoSurface(QWidget):
     clicked = Signal()
     double_clicked = Signal()
     wheel = Signal(int)  # wheel delta: volume, without touching the strip
+    menu_requested = Signal(QPoint)  # global position of a right click
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -54,6 +61,12 @@ class VideoSurface(QWidget):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Right click opens the menu and *never* toggles playback, so it does
+            # not go through `clicked`.
+            self.menu_requested.emit(event.globalPosition().toPoint())
+            event.accept()
+            return
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
@@ -85,18 +98,35 @@ class VideoSurface(QWidget):
     # ---------------------------------------------------------------- painting
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(tokens.VIDEO_BG))
         if not self._empty_text:
+            painter.fillRect(self.rect(), QColor(tokens.VIDEO_BG))
+            painter.end()
             return
+
+        # Home screen: one flat surface, Material style. A gradient and a glow
+        # both read as decoration next to the flat cards and menus, so the empty
+        # state is a single colour with the wordmark and hint doing the work.
+        rect = self.rect()
+        painter.fillRect(rect, QColor(tokens.HOME_TOP))
+
+        mark = QFont(tokens.FONT_FAMILY)
+        mark.setPixelSize(max(26, min(46, rect.height() // 13)))
+        mark.setWeight(QFont.Weight.DemiBold)
+        mark.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2.0)
+        painter.setFont(mark)
+        painter.setPen(QColor(tokens.ACCENT_GREEN))
+        mark_rect = QRect(rect)
+        mark_rect.setBottom(rect.center().y() + 6)
+        painter.drawText(mark_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom, "Reel")
 
         font = painter.font()
         font.setFamily(tokens.FONT_FAMILY)
         font.setPixelSize(tokens.FS_TIME)
+        font.setWeight(QFont.Weight.Normal)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.0)
         painter.setFont(font)
-        painter.setPen(QColor(tokens.TEXT_FAINT))
-        painter.drawText(
-            QRect(self.rect()).adjusted(tokens.PAD, 0, -tokens.PAD, 0),
-            Qt.AlignmentFlag.AlignCenter,
-            self._empty_text,
-        )
+        painter.setPen(QColor(tokens.TEXT_DIM))
+        hint_rect = QRect(rect)
+        hint_rect.setTop(rect.center().y() + 16)
+        painter.drawText(hint_rect, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, self._empty_text)
         painter.end()

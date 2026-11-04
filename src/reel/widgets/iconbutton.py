@@ -71,7 +71,11 @@ class IconButton(QAbstractButton):
                 fill = tokens.BTN_HOVER
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(fill))
-            painter.drawRoundedRect(QRectF(self.rect()), tokens.RADIUS_CTL, tokens.RADIUS_CTL)
+            if self.width() == self.height():
+                # Square hit box -> round hover, as in the reference design.
+                painter.drawEllipse(QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0))
+            else:
+                painter.drawRoundedRect(QRectF(self.rect()), 8.0, 8.0)
 
         color = tokens.TEXT if self.isEnabled() else tokens.TEXT_FAINT
         side = float(min(self._icon_size, self.width(), self.height()))

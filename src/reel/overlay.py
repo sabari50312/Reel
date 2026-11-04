@@ -15,8 +15,15 @@ Window flags that matter:
   WindowDoesNotAcceptFocus   clicking play/pause must never deactivate the player
   WA_ShowWithoutActivating   showing the overlay must not steal focus either
 
-Only the bottom strip is covered, so the rest of the video stays clickable and
-the overlay can be hidden outright (no invisible click-eater when it is idle).
+Only the floating control card is covered, so the rest of the video stays
+clickable and the overlay can be hidden outright (no invisible click-eater when
+it is idle).
+
+The fade animates a QGraphicsOpacityEffect on the content widget, not window
+opacity: Qt maps a translucent top-level on Windows to a per-pixel-alpha layered
+window where setWindowOpacity does not reach the screen, and painting alpha on a
+background widget cannot fade child widgets at all (the old gradient scrim faded
+while the buttons popped in and out on top of it).
 """
 
 from __future__ import annotations
@@ -26,18 +33,19 @@ from PySide6.QtCore import (
     QEvent,
     QEasingCurve,
     QObject,
+    QPoint,
     QPropertyAnimation,
     QRect,
     QTimer,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QLinearGradient, QMouseEvent, QPaintEvent, QPainter
-from PySide6.QtWidgets import QMainWindow, QWidget
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QMainWindow, QWidget
 
 from .style import tokens
 
-_BOTTOM_MARGIN = 10  # content padding inside the strip's bottom edge
+_EDGE_MARGIN = tokens.BAR_EDGE  # gap between the card and the window edges
 _WAKE_EVENTS = (
     QEvent.Type.Enter,
     QEvent.Type.MouseMove,
@@ -46,54 +54,11 @@ _WAKE_EVENTS = (
 )
 
 
-class _Scrim(QWidget):
-    """Bottom gradient. Pure painting, never takes the mouse.
-
-    The fade is animated as *painted* alpha, not window opacity. Qt maps a
-    translucent top-level window on Windows to a per-pixel-alpha layered window
-    (WS_EX_LAYERED + UpdateLayeredWindow), where setWindowOpacity does not
-    reliably reach the screen: the buffer pushed while opacity was 0.0 stays
-    invisible until something repaints. Painting the alpha guarantees a fresh
-    buffer every frame.
-    """
-
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
-        self._alpha = 0.0
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-
-    def get_alpha(self) -> float:
-        return self._alpha
-
-    def set_alpha(self, value: float) -> None:
-        if value != self._alpha:
-            self._alpha = value
-            self.update()
-
-    fadeAlpha = Property(float, get_alpha, set_alpha)
-
-    def paintEvent(self, event: QPaintEvent) -> None:
-        if self._alpha <= 0.0:
-            return
-        painter = QPainter(self)
-        gradient = QLinearGradient(0, 0, 0, self.height())
-        for stop, color in (
-            (0.0, tokens.SCRIM_START),
-            (0.55, tokens.SCRIM_MID),
-            (1.0, tokens.SCRIM),
-        ):
-            scaled = QColor(color)
-            scaled.setAlphaF(scaled.alphaF() * self._alpha)
-            gradient.setColorAt(stop, scaled)
-        painter.fillRect(self.rect(), gradient)
-        painter.end()
-
-
 class Overlay(QWidget):
     """Auto-hiding strip of controls pinned to the bottom of the video area."""
 
     play_toggle_requested = Signal()
+    menu_requested = Signal(QPoint)  # right click on the strip: global position
     visibility_changed = Signal(bool)  # True = strip shown, False = faded out
 
     def __init__(self, host: QMainWindow) -> None:
@@ -111,9 +76,10 @@ class Overlay(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setWindowTitle("Reel controls")
 
-        self._scrim = _Scrim(self)
+        self._effect = QGraphicsOpacityEffect(self)
+        self._effect.setOpacity(0.0)
 
-        self._fade = QPropertyAnimation(self._scrim, b"fadeAlpha", self)
+        self._fade = QPropertyAnimation(self._effect, b"opacity", self)
         self._fade.setDuration(tokens.FADE_MS)
         self._fade.setEasingCurve(QEasingCurve.Type.Linear)
         self._fade.finished.connect(self._on_fade_finished)
@@ -125,6 +91,7 @@ class Overlay(QWidget):
 
         self._visible = False
         self._hold = False
+        self._suppressed = False
         self._content: QWidget | None = None
 
         host.installEventFilter(self)
@@ -138,7 +105,8 @@ class Overlay(QWidget):
         """
         self._content = widget
         widget.setParent(self)
-        widget.raise_()  # content above the scrim
+        widget.setGraphicsEffect(self._effect)  # the whole card fades as one
+        widget.raise_()
         self._watch(widget)
         self.sync_geometry()
 
@@ -162,12 +130,34 @@ class Overlay(QWidget):
             self._idle.start()
 
     # ------------------------------------------------------------- visibility
+    def set_hide_delay(self, milliseconds: int) -> None:
+        """How long the strip lingers after the last mouse move / key press."""
+        self._idle.setInterval(max(400, int(milliseconds)))
+        if self._visible and not self._hold:
+            self._idle.start()  # restart with the new delay instead of waiting out the old one
+    def set_suppressed(self, suppressed: bool) -> None:
+        """Hard-hide the strip and refuse to wake while another window has focus.
+
+        The strip is a topmost window, so it would otherwise float above the
+        settings dialog - its buttons visibly hanging over it.
+        """
+        self._suppressed = suppressed
+        if not suppressed:
+            return
+        self._idle.stop()
+        if self._visible:
+            self._visible = False
+            self._animate(0.0)
+            self.visibility_changed.emit(False)
+
     def wake(self) -> None:
         """Show the controls and restart the idle countdown.
 
         A held strip (paused playback) still shows: `hold` freezes auto-hide,
         it must not make the pause state invisible.
         """
+        if self._suppressed:
+            return
         if not self._hold:
             self._idle.start()
         if self._visible:
@@ -192,31 +182,30 @@ class Overlay(QWidget):
 
     def _animate(self, target: float) -> None:
         self._fade.stop()
-        self._fade.setStartValue(self._scrim.fadeAlpha)
+        self._fade.setStartValue(self._effect.opacity())
         self._fade.setEndValue(target)
         self._fade.start()
 
     def _on_fade_finished(self) -> None:
         # Hide only once fully transparent: an invisible overlay window would
         # still swallow every click on the video behind it.
-        if not self._visible and self._scrim.fadeAlpha <= 0.01:
+        if not self._visible and self._effect.opacity() <= 0.01:
             self.hide()
 
     # -------------------------------------------------------------- geometry
     def sync_geometry(self) -> None:
         """Pin the strip to the bottom of the host's client area."""
         client = self._host.rect()
-        height = min(tokens.OVERLAY_H, max(48, client.height()))
+        card_h = min(tokens.BAR_H, max(40, client.height()))
+        height = min(card_h + 2 * _EDGE_MARGIN, max(48, client.height()))
         bottom_left = self._host.mapToGlobal(client.bottomLeft())
         self.setGeometry(QRect(bottom_left.x(), bottom_left.y() - height + 1, client.width(), height))
-        self._scrim.setGeometry(0, 0, client.width(), height)
         if self._content is not None:
-            strip_h = min(self._content.height(), height)
             self._content.setGeometry(
-                tokens.PAD,
-                height - _BOTTOM_MARGIN - strip_h,
-                max(1, client.width() - 2 * tokens.PAD),
-                strip_h,
+                _EDGE_MARGIN,
+                _EDGE_MARGIN,
+                max(1, client.width() - 2 * _EDGE_MARGIN),
+                card_h,
             )
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
@@ -242,4 +231,8 @@ class Overlay(QWidget):
         # Clicking empty overlay space behaves like clicking the video.
         if event.button() == Qt.MouseButton.LeftButton:
             self.play_toggle_requested.emit()
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.menu_requested.emit(event.globalPosition().toPoint())
+            event.accept()
+            return
         super().mousePressEvent(event)

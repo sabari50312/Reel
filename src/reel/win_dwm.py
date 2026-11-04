@@ -72,3 +72,39 @@ def apply_dark_titlebar(widget, caption: str, text: str, border: str | None = No
     if border is not None:
         _set_attr(hwnd, _DWMWA_BORDER_COLOR, _colorref(border))
     return ok
+
+
+# Keep the player above other windows without touching Qt's window flags.
+# setWindowFlag(WindowStaysOnTopHint) re-creates the native window, which would
+# destroy the HWND libVLC renders into; SetWindowPos just changes the z-order.
+_HWND_TOPMOST = ctypes.c_void_p(-1)
+_HWND_NOTOPMOST = ctypes.c_void_p(-2)
+_SWP_NOSIZE = 0x0001
+_SWP_NOMOVE = 0x0002
+_SWP_NOACTIVATE = 0x0010
+
+
+def set_topmost(widget, enabled: bool) -> bool:
+    """Pin `widget` above other windows (or release it). Returns True on success."""
+    if sys.platform != "win32":
+        return False
+    try:
+        hwnd = int(widget.winId())
+    except Exception:  # noqa: BLE001
+        return False
+    if not hwnd:
+        return False
+    insert_after = _HWND_TOPMOST if enabled else _HWND_NOTOPMOST
+    try:
+        ok = ctypes.windll.user32.SetWindowPos(  # type: ignore[attr-defined]
+            ctypes.c_void_p(hwnd),
+            insert_after,
+            0,
+            0,
+            0,
+            0,
+            _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE,
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(ok)

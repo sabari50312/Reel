@@ -32,23 +32,589 @@ QToolTip {
 }
 
 QMenu {
-    background: $TITLEBAR;
-    color: $TEXT;
-    border: 1px solid #23282e;
-    padding: 4px;
+    background-color: $MENU_BG;
+    border: 1px solid $MENU_BORDER;
+    border-radius: 10px;
+    padding: 6px 0;
 }
 
 QMenu::item {
-    padding: 5px 18px;
-    border-radius: ${RADIUS_CTL}px;
+    background: transparent;
+    color: $TEXT;
+    padding: 7px 28px 7px 12px;
+    margin: 1px 6px;
+    border-radius: 6px;
+    font-size: ${FS_TIME}px;
 }
 
 QMenu::item:selected {
     background: $BTN_HOVER;
+    color: $TEXT;
+}
+
+QMenu::item:disabled {
+    color: $TEXT_FAINT;
+}
+
+QMenu::item:pressed {
+    background: $BTN_ACTIVE;
+}
+
+QMenu::indicator {
+    width: 8px;
+    height: 8px;
+    margin-left: 8px;
+    border-radius: 4px;
+}
+
+QMenu::indicator:checked {
+    background: $ACCENT;
+}
+
+QMenu::right-arrow {
+    image: none;
+    width: 7px;
+    height: 7px;
 }
 
 QMenu::separator {
     height: 1px;
-    background: #23282e;
-    margin: 4px 8px;
+    background: $SEP;
+    margin: 5px 10px;
+}
+
+/* ---- settings window ------------------------------------------------ */
+
+#SettingsPanel {
+    background: $BG;
+}
+
+#SettingsPanel QListWidget#SettingsRail {
+    background: $TITLEBAR;
+    border: none;
+    outline: 0;
+    padding: 10px 8px;
+}
+
+#SettingsPanel QListWidget#SettingsRail::item {
+    color: $TEXT_DIM;
+    padding: 8px 10px;
+    border-radius: ${RADIUS_CTL}px;
+}
+
+#SettingsPanel QListWidget#SettingsRail::item:hover:!selected {
+    background: $BTN_HOVER;
+}
+
+#SettingsPanel QListWidget#SettingsRail::item:selected {
+    background: $BTN_ACTIVE;
+    color: $TEXT;
+}
+
+#SettingsPanel #SettingsPage {
+    background: $BG;
+}
+
+#SettingsPanel QPushButton#PanelTab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0px;
+    color: $TEXT_LABEL;
+    font-size: ${FS_SMALL}px;
+    font-weight: $WEIGHT_SEMIBOLD;
+    padding: 8px 7px 9px 5px;
+    text-align: left;
+}
+
+#SettingsPanel QPushButton#PanelTab:hover {
+    color: $TEXT;
+}
+
+#SettingsPanel QPushButton#PanelTab:checked {
+    color: $TEXT;
+    border-bottom: 2px solid $ACCENT_GREEN;
+}
+
+#SettingsPanel QWidget#PanelTabs {
+    border-bottom: 1px solid $PANEL_DIVIDER;
+}
+
+#SettingsPanel QPushButton#TrackChoice {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: $TEXT_DIM;
+    font-size: ${FS_TIME}px;
+    padding: 7px 10px;
+    text-align: left;
+}
+
+#SettingsPanel QPushButton#TrackChoice:hover {
+    background: $BTN_HOVER;
+    color: $TEXT;
+}
+
+#SettingsPanel QPushButton#TrackChoice:checked {
+    background: $BTN_ACTIVE;
+    color: $ACCENT_GREEN;
+}
+
+
+#SettingsPanel QSlider#DelaySlider {
+    min-height: 22px;
+}
+
+#SettingsPanel QSlider#DelaySlider::groove:horizontal {
+    height: 6px;
+    background: $PANEL_FIELD_BORDER;
+    border-radius: 3px;
+}
+
+#SettingsPanel QSlider#DelaySlider::sub-page:horizontal {
+    background: $ACCENT_GREEN;
+    border-radius: 3px;
+}
+
+#SettingsPanel QSlider#DelaySlider::handle:horizontal {
+    width: 12px;
+    height: 20px;
+    margin: -7px 0;
+    background: $ACCENT_GREEN;
+    border: none;
+    border-radius: 6px;
+}
+
+#SettingsPanel QWidget#SearchBar {
+    background: transparent;
+}
+
+#SettingsPanel QLineEdit#SearchField {
+    background: $PANEL_FIELD;
+    border: 1px solid $PANEL_FIELD_BORDER;
+    border-radius: 8px;
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+    min-height: 34px;
+    padding: 7px 12px;
+}
+
+#SettingsPanel QLineEdit#SearchField:focus {
+    border: 1px solid $ACCENT_GREEN;
+}
+
+#SettingsPanel QComboBox#SearchScope {
+    background: $PANEL_FIELD;
+    border: 1px solid $PANEL_FIELD_BORDER;
+    border-radius: 8px;
+    color: $TEXT_DIM;
+    font-size: ${FS_SMALL}px;
+    padding: 5px 10px;
+    min-width: 84px;
+}
+
+#SettingsPanel QComboBox#SearchScope::drop-down {
+    border: none;
+    width: 14px;
+}
+
+#SettingsPanel QComboBox#SearchScope QAbstractItemView {
+    background: $MENU_BG;
+    border: 1px solid $PANEL_BORDER;
+    color: $TEXT;
+    selection-background-color: $BTN_ACTIVE;
+    outline: 0;
+}
+
+#SettingsPanel QPushButton#SearchResult {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+    padding: 8px 10px;
+    text-align: left;
+}
+
+#SettingsPanel QPushButton#SearchResult:hover {
+    background: $BTN_HOVER;
+}
+
+#SettingsPanel [flash="true"] {
+    /* Background only: a border would shrink the row's content box by a pixel
+       on each side and make the list jump while it flashes. */
+    background: rgba(53, 208, 127, 46);
+    border-radius: 7px;
+}
+
+#SettingsPanel QLabel#PageTitle {
+    font-size: 18px;
+    color: $TEXT;
+}
+
+#SettingsPanel QLabel#PageHint,
+#SettingsPanel QLabel#StoragePath,
+#SettingsPanel QLabel#StatusNote {
+    color: $TEXT_DIM;
+    font-size: ${FS_TITLE}px;
+}
+
+#SettingsPanel QLabel#ActionName {
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+}
+
+#SettingsPanel QLabel#Unbound {
+    color: $TEXT_FAINT;
+    font-size: ${FS_TIME}px;
+    font-style: italic;
+}
+
+#SettingsPanel QScrollArea#RowsScroll {
+    background: transparent;
+    border: none;
+}
+
+#SettingsPanel QWidget#RowsHolder {
+    background: transparent;
+}
+
+#SettingsPanel QPushButton#BindingChip {
+    background: $PANEL_FIELD;
+    border: 1px solid $PANEL_FIELD_BORDER;
+    border-radius: 7px;
+    color: $TEXT;
+    font-size: ${FS_SMALL}px;
+    padding: 5px 9px;
+    min-width: 46px;
+}
+
+#SettingsPanel QPushButton#BindingChip:hover {
+    background: $BTN_HOVER;
+    border-color: $PANEL_BORDER;
+}
+
+#SettingsPanel QPushButton#BindingChip[capturing="true"] {
+    background: $BTN_ACTIVE;
+    border: 1px solid $ACCENT;
+    color: $ACCENT;
+}
+
+#SettingsPanel QPushButton#AddBinding,
+#SettingsPanel QPushButton#RowReset,
+#SettingsPanel QPushButton#ResetAll {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: $TEXT_DIM;
+    font-size: ${FS_SMALL}px;
+    padding: 5px 9px;
+}
+
+#SettingsPanel QPushButton#AddBinding {
+    min-width: 12px;
+    padding: 5px 8px;
+}
+
+#SettingsPanel QPushButton#AddBinding:hover,
+#SettingsPanel QPushButton#RowReset:hover,
+#SettingsPanel QPushButton#ResetAll:hover {
+    background: $BTN_HOVER;
+    color: $TEXT;
+}
+
+#SettingsPanel QPushButton#RowReset:disabled {
+    color: $TEXT_FAINT;
+}
+
+#SettingsPanel QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 0;
+}
+
+#SettingsPanel QScrollBar::handle:vertical {
+    background: #2a3138;
+    border-radius: 5px;
+    min-height: 30px;
+}
+
+#SettingsPanel QScrollBar::handle:vertical:hover {
+    background: #38414b;
+}
+
+#SettingsPanel QScrollBar::add-line:vertical,
+#SettingsPanel QScrollBar::sub-line:vertical,
+#SettingsPanel QScrollBar::add-page:vertical,
+#SettingsPanel QScrollBar::sub-page:vertical {
+    background: transparent;
+    height: 0;
+}
+
+/* ---- settings: behaviour rows --------------------------------------- */
+
+#SettingsPanel QLabel#SectionTitle {
+    color: #d7dbe0;
+    font-size: 17px;
+    font-weight: 400;
+    padding: 0px 0px 6px 0px;
+}
+
+#SettingsPanel QLabel#RowTitle {
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+}
+
+#SettingsPanel QLabel#RowHint {
+    color: $TEXT_FAINT;
+    font-size: ${FS_TITLE}px;
+}
+
+#SettingsPanel QLabel#StepValue {
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+}
+
+#SettingsPanel QPushButton#Segment {
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+    color: $TEXT_DIM;
+    font-size: ${FS_SMALL}px;
+    padding: 5px 10px;
+}
+
+#SettingsPanel QPushButton#Segment:hover {
+    background: $BTN_HOVER;
+    color: $TEXT;
+}
+
+#SettingsPanel QPushButton#Segment:checked {
+    background: $BTN_ACTIVE;
+    color: $TEXT;
+}
+
+#SettingsPanel QPushButton#StepBtn {
+    background: $PANEL_FIELD;
+    border: 1px solid $PANEL_FIELD_BORDER;
+    border-radius: 7px;
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+    padding: 0;
+}
+
+#SettingsPanel QPushButton#StepBtn:hover {
+    background: $BTN_HOVER;
+    border-color: $PANEL_BORDER;
+}
+
+#SettingsPanel QPushButton#StepBtn:disabled {
+    background: transparent;
+    color: $TEXT_FAINT;
+}
+
+/* ---- resume prompt --------------------------------------------------- */
+
+#ResumePanel {
+    background: $TITLEBAR;
+    border: 1px solid #23282e;
+    border-radius: 10px;
+}
+
+#ResumePanel QLabel#ResumeTitle {
+    color: $TEXT;
+    font-size: 15px;
+}
+
+#ResumePanel QLabel#ResumeWhen {
+    color: $TEXT_DIM;
+    font-size: ${FS_TIME}px;
+}
+
+#ResumePanel QPushButton#PromptPrimary {
+    background: $ACCENT;
+    border: none;
+    border-radius: ${RADIUS_CTL}px;
+    color: $BG;
+    font-size: ${FS_TIME}px;
+    padding: 7px 18px;
+}
+
+#ResumePanel QPushButton#PromptPrimary:hover {
+    background: #ffffff;
+}
+
+#ResumePanel QPushButton#PromptSecondary {
+    background: transparent;
+    border: 1px solid #2c333b;
+    border-radius: ${RADIUS_CTL}px;
+    color: $TEXT_DIM;
+    font-size: ${FS_TIME}px;
+    padding: 7px 14px;
+}
+
+#ResumePanel QPushButton#PromptSecondary:hover {
+    background: $BTN_HOVER;
+    color: $TEXT;
+}
+
+/* ---- shared dialog buttons ------------------------------------------ */
+
+QPushButton#PromptPrimary {
+    background: $ACCENT;
+    border: none;
+    border-radius: ${RADIUS_CTL}px;
+    color: #0b0d10;
+    font-size: ${FS_TIME}px;
+    font-weight: 600;
+    padding: 7px 16px;
+}
+
+QPushButton#PromptPrimary:hover {
+    background: #ffffff;
+}
+
+QPushButton#PromptPrimary:disabled {
+    background: #262c33;
+    color: $TEXT_FAINT;
+}
+
+QPushButton#PromptSecondary {
+    background: transparent;
+    border: 1px solid #23282e;
+    border-radius: ${RADIUS_CTL}px;
+    color: $TEXT_DIM;
+    font-size: ${FS_TIME}px;
+    padding: 7px 16px;
+}
+
+QPushButton#PromptSecondary:hover {
+    background: $BTN_HOVER;
+    color: $TEXT;
+}
+
+/* ---- subtitle search ------------------------------------------------- */
+
+#SubtitleSearch {
+    background: $BG;
+}
+
+#SubtitleSearch QLineEdit#SearchField {
+    background: $TITLEBAR;
+    border: 1px solid #23282e;
+    border-radius: ${RADIUS_CTL}px;
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+    padding: 6px 10px;
+    selection-background-color: $TRACK_HOVER;
+}
+
+#SubtitleSearch QLineEdit#SearchField:focus {
+    border: 1px solid $ACCENT;
+}
+
+#SubtitleSearch QListWidget#ResultList {
+    background: $TITLEBAR;
+    border: 1px solid #1b2027;
+    border-radius: ${RADIUS_CTL}px;
+    outline: 0;
+    padding: 4px;
+}
+
+#SubtitleSearch QListWidget#ResultList::item {
+    border-radius: 4px;
+    color: $TEXT_DIM;
+    padding: 6px 8px;
+}
+
+#SubtitleSearch QListWidget#ResultList::item:hover:!selected {
+    background: $BTN_HOVER;
+}
+
+#SubtitleSearch QListWidget#ResultList::item:selected {
+    background: $BTN_ACTIVE;
+    color: $TEXT;
+}
+
+#SubtitleSearch QLabel#StatusNote {
+    color: $TEXT_DIM;
+    font-size: ${FS_TITLE}px;
+}
+
+/* text rows on the settings pages */
+#SettingsPanel QLineEdit#RowEdit {
+    background: $TITLEBAR;
+    border: 1px solid #23282e;
+    border-radius: ${RADIUS_CTL}px;
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+    padding: 6px 10px;
+    selection-background-color: $TRACK_HOVER;
+}
+
+#SettingsPanel QLineEdit#RowEdit:focus {
+    border: 1px solid $ACCENT;
+}
+
+/* ---- side file browser ------------------------------------------------ */
+
+#FilePanel QListWidget#FileList {
+    background: transparent;
+    border: none;
+    outline: 0;
+}
+
+#FilePanel QListWidget#FileList::item {
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+    padding: 8px 8px;
+    border-radius: 8px;
+}
+
+#FilePanel QListWidget#FileList::item:hover:!selected {
+    background: $BTN_HOVER;
+}
+
+#FilePanel QListWidget#FileList::item:selected {
+    background: $BTN_ACTIVE;
+}
+
+#FilePanel QListWidget#FileList::item:disabled {
+    color: $TEXT_FAINT;
+}
+
+#FilePanel QLabel#PanelPath {
+    color: $TEXT;
+    font-size: ${FS_TIME}px;
+    font-weight: $WEIGHT_SEMIBOLD;
+}
+
+#FilePanel QLabel#PanelHint {
+    color: $TEXT_FAINT;
+    font-size: ${FS_SMALL}px;
+    padding-left: 4px;
+}
+
+#FilePanel QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 2px 0;
+}
+
+#FilePanel QScrollBar::handle:vertical {
+    background: #2a3138;
+    border-radius: 5px;
+    min-height: 28px;
+}
+
+#FilePanel QScrollBar::handle:vertical:hover {
+    background: #38414b;
+}
+
+#FilePanel QScrollBar::add-line:vertical,
+#FilePanel QScrollBar::sub-line:vertical,
+#FilePanel QScrollBar::add-page:vertical,
+#FilePanel QScrollBar::sub-page:vertical {
+    background: transparent;
+    height: 0;
 }

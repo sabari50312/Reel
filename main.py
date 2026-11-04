@@ -30,6 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     from reel.style import stylesheet
 
     app = QApplication(argv)
+    # QSettings' native backend keys on these: HKCU\Software\Reel\Reel
+    app.setOrganizationName("Reel")
     app.setApplicationName("Reel")
     app.setApplicationDisplayName("Reel")
     app.setStyle("Fusion")  # predictable dark chrome for menus/tooltips

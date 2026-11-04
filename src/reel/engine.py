@@ -28,6 +28,8 @@ VLC_ARGS = (
 )
 
 POLL_MS = 33  # ~30 Hz
+_SUB_POLL_MS = 120  # attach_subtitle(): how often to look for the new track
+_SUB_POLL_TRIES = 5
 SEEK_GUARD_S = 0.35  # ignore polled positions this long after a seek
 
 
@@ -41,6 +43,7 @@ class Player(QObject):
     muted_changed = Signal(bool)
     ended = Signal()
     error = Signal(str)
+    subtitle_attached = Signal(bool)  # attach_subtitle() finished (or gave up)
 
     # Internal hops from libVLC's worker thread to the GUI thread. Qt delivers
     # these queued because the emitting thread is not the receiver's thread, so
@@ -50,6 +53,7 @@ class Player(QObject):
     _sig_volume = Signal(int)
     _sig_end = Signal()
     _sig_error = Signal()
+    _sig_vout = Signal()
 
     def __init__(self, hwnd: int = 0, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -67,6 +71,8 @@ class Player(QObject):
         self._muted = False
         self._released = False
         self._seek_guard_until = 0.0
+        self._video_reported = False  # see _on_vout()
+        self._sub_pending: tuple[frozenset[int], int, str] | None = None  # see attach_subtitle()
         self._callbacks: list = []  # libVLC keeps C-level refs; we keep Python refs
 
         if hwnd:
@@ -84,6 +90,7 @@ class Player(QObject):
         self._sig_volume.connect(self.volume_changed, queued)
         self._sig_end.connect(self._on_end, queued)
         self._sig_error.connect(self._on_error, queued)
+        self._sig_vout.connect(self._on_vout, queued)
 
         self._attach_events()
 
@@ -110,6 +117,7 @@ class Player(QObject):
         on(vlc.EventType.MediaPlayerEncounteredError, lambda _e: self._sig_error.emit())
         on(vlc.EventType.MediaPlayerLengthChanged, self._on_length)
         on(vlc.EventType.MediaPlayerAudioVolume, self._on_volume)
+        on(vlc.EventType.MediaPlayerVout, lambda _e: self._sig_vout.emit())
 
     def _on_state(self, playing: bool) -> None:
         if self._released:
@@ -133,7 +141,22 @@ class Player(QObject):
             return
         if length > 0 and length != self._duration:
             self._duration = length
+            self._video_reported = self._video_reported or self._has_video()
             self.opened.emit(self._duration, self._has_video())
+
+    def _on_vout(self) -> None:
+        """A video output appeared after we already reported the media.
+
+        With `:start-paused` libVLC decodes the first frame and holds the clock;
+        LengthChanged can arrive before the vout exists, so the window would keep
+        its "open a file" hint over a perfectly good picture. Report once more,
+        and only if we have never seen a picture for this media.
+        """
+        if self._released or self._duration <= 0 or self._video_reported:
+            return
+        if self._has_video():
+            self._video_reported = True
+            self.opened.emit(self._duration, True)
 
     def _has_video(self) -> bool:
         """python-vlc exposes no MediaPlayer.has_video(); the vout size is the honest probe."""
@@ -162,6 +185,7 @@ class Player(QObject):
         except Exception:  # noqa: BLE001
             return
         if volume >= 0:
+            self._volume = volume  # keep the cache honest: audio_set_volume is not the only source
             self._sig_volume.emit(volume)  # hop to the GUI thread
 
     # ------------------------------------------------------------- polling
@@ -184,7 +208,13 @@ class Player(QObject):
             self._player.video_set_mouse_input(False)
             self._player.video_set_key_input(False)
 
-    def open(self, path: str) -> bool:
+    def open(
+        self,
+        path: str,
+        autoplay: bool = True,
+        subtitle: str | None = None,
+        start_ms: int = 0,
+    ) -> bool:
         if self._player is None or self._instance is None:
             self.error.emit("The player has been shut down.")
             return False
@@ -198,9 +228,27 @@ class Player(QObject):
             self.error.emit(f"libVLC could not open: {source.name}")
             return False
 
+        if subtitle:
+            # ":sub-file" is read while the input is being built, which is the
+            # one path that works when add_slave() is refused mid-playback.
+            media.add_option(f":sub-file={subtitle}")
+
+        if start_ms > 0:
+            # ":start-time" is applied while the input is built, so resuming is a
+            # seek-free start instead of a seek right after play() (which the
+            # seek guard and the demuxer would fight over).
+            media.add_option(f":start-time={start_ms / 1000.0:.3f}")
+
+        if not autoplay:
+            # libVLC's own "open but hold": the first frame is decoded and shown,
+            # the clock stays stopped. Beats play()+pause(), which races the
+            # Opening state and can leak a frame of audio.
+            media.add_option(":start-paused")
+
         self._media = media
         self._path = str(source)
         self._duration = 0
+        self._video_reported = False
         self._player.set_media(media)
         self._player.play()  # MediaPlayerPlaying -> opened(duration) + state_changed
         return True
@@ -294,6 +342,220 @@ class Player(QObject):
         if self._player is not None:
             self._player.audio_set_mute(self._muted)
         self.muted_changed.emit(self._muted)
+
+    # --------------------------------------------------------------- streams
+    # Track lists are read on demand, never cached: libVLC reports them late (the
+    # ES selections arrive with the first packets), so a cached list would show a
+    # menu with the previous file's tracks or none at all.
+    def audio_tracks(self) -> list[tuple[int, str]]:
+        return [(tid, name) for tid, name in self._descriptions("audio") if tid >= 0]
+
+    def subtitle_tracks(self) -> list[tuple[int, str]]:
+        """Subtitles, without libVLC's synthetic "Disable" entry (id -1)."""
+        return [(tid, name) for tid, name in self._descriptions("spu") if tid >= 0]
+
+    def current_audio(self) -> int:
+        return self._track("audio")
+
+    def current_subtitle(self) -> int:
+        return self._track("spu")
+
+    def set_audio(self, track_id: int) -> None:
+        if self._player is not None:
+            self._player.audio_set_track(int(track_id))
+
+    def set_subtitle(self, track_id: int) -> None:
+        """-1 disables subtitles, which is what libVLC itself uses."""
+        if self._player is not None:
+            self._player.video_set_spu(int(track_id))
+
+    def load_subtitle(self, path: str) -> bool:
+        """Ask libVLC to attach a subtitle file to the running input.
+
+        The path has to go in as an MRL. A bare Windows path returns success and
+        then adds *nothing* - that is the whole reason dropped subtitles used to
+        look loaded and never appear.
+        """
+        if self._player is None or self._duration <= 0:
+            return False
+        try:
+            uri = Path(path).resolve().as_uri()
+            return int(self._player.add_slave(vlc.MediaSlaveType.subtitle, uri, True)) == 0
+        except Exception:  # noqa: BLE001 - a bad file must not kill the player
+            return False
+
+    def attach_subtitle(self, path: str) -> bool:
+        """Attach a subtitle and select it as soon as libVLC registers it.
+
+        `add_slave()` returns before the new elementary stream shows up in the
+        track list, and the track is *not* selected automatically - an unselected
+        subtitle looks exactly like a failed load. Worse, the add is occasionally
+        dropped when it races the input's ES setup, so it is retried a few times
+        before giving up. `subtitle_attached(bool)` reports the outcome.
+        """
+        before = frozenset(track_id for track_id, _ in self.subtitle_tracks())
+        if not self.load_subtitle(path):
+            return False
+        self._sub_pending = (before, _SUB_POLL_TRIES, str(path))
+        QTimer.singleShot(_SUB_POLL_MS, self._resolve_pending_subtitle)
+        return True
+
+    def _resolve_pending_subtitle(self) -> None:
+        pending = self._sub_pending
+        if pending is None:
+            return
+        before, tries, path = pending
+        added = [track_id for track_id, _ in self.subtitle_tracks() if track_id not in before]
+        if added:
+            self._sub_pending = None
+            self.set_subtitle(added[-1])
+            self.subtitle_attached.emit(True)
+            return
+        if tries <= 1:
+            self._sub_pending = None
+            self.subtitle_attached.emit(False)
+            return
+        self.load_subtitle(path)  # the previous add was dropped, not refused
+        self._sub_pending = (before, tries - 1, path)
+        QTimer.singleShot(_SUB_POLL_MS, self._resolve_pending_subtitle)
+
+    def subtitle_delay(self) -> int:
+        """Current subtitle delay in milliseconds; positive = subtitles later."""
+        if self._player is None:
+            return 0
+        try:
+            return int(self._player.video_get_spu_delay()) // 1000  # µs -> ms
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def set_subtitle_delay(self, milliseconds: int) -> None:
+        if self._player is None or self._duration <= 0:
+            return
+        try:
+            self._player.video_set_spu_delay(int(milliseconds) * 1000)
+        except Exception:  # noqa: BLE001 - no input yet, or no subtitle track
+            return
+
+    def current_path(self) -> str | None:
+        return self._path
+
+    def _descriptions(self, kind: str) -> list[tuple[int, str]]:
+        if self._player is None:
+            return []
+        try:
+            if kind == "audio":
+                raw = self._player.audio_get_track_description()
+            else:
+                raw = self._player.video_get_spu_description()
+        except Exception:  # noqa: BLE001
+            return []
+        tracks: list[tuple[int, str]] = []
+        for entry in raw or []:
+            try:
+                track_id, name = entry
+            except (TypeError, ValueError):
+                continue
+            text = name.decode("utf-8", "replace") if isinstance(name, bytes) else str(name)
+            tracks.append((int(track_id), text or f"Track {track_id}"))
+        return tracks
+
+    def _track(self, kind: str) -> int:
+        if self._player is None:
+            return -1
+        try:
+            if kind == "audio":
+                return int(self._player.audio_get_track())
+            return int(self._player.video_get_spu())
+        except Exception:  # noqa: BLE001
+            return -1
+
+    def has_media(self) -> bool:
+        """True once a file is open and its duration is known."""
+        return self._media is not None and self._duration > 0
+
+    def cycle_audio(self) -> int:
+        """Next audio track, wrapping around. Returns the id now active (-1 none)."""
+        tracks = [track_id for track_id, _ in self.audio_tracks()]
+        if not tracks:
+            return -1
+        current = self.current_audio()
+        index = tracks.index(current) + 1 if current in tracks else 0
+        nxt = tracks[index % len(tracks)]
+        self.set_audio(nxt)
+        return nxt
+
+    def cycle_subtitle(self) -> int:
+        """Off -> track 1 -> track 2 -> ... -> Off, like VLC's subtitle key."""
+        tracks = [track_id for track_id, _ in self.subtitle_tracks()]
+        order = [-1, *tracks]
+        current = self.current_subtitle()
+        index = order.index(current) + 1 if current in order else 0
+        nxt = order[index % len(order)]
+        self.set_subtitle(nxt)
+        return nxt
+
+    def audio_delay(self) -> int:
+        """Audio delay in milliseconds; positive = sound later."""
+        if self._player is None:
+            return 0
+        try:
+            return int(self._player.audio_get_delay()) // 1000  # µs -> ms
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def set_audio_delay(self, milliseconds: int) -> None:
+        if self._player is None or self._duration <= 0:
+            return
+        try:
+            self._player.audio_set_delay(int(milliseconds) * 1000)
+        except Exception:  # noqa: BLE001
+            return
+
+    # ------------------------------------------------------ speed and aspect
+    def rate(self) -> float:
+        if self._player is None:
+            return 1.0
+        return float(self._player.get_rate()) or 1.0
+
+    def set_rate(self, rate: float) -> None:
+        if self._player is not None:
+            self._player.set_rate(float(rate))
+
+    def aspect(self) -> str:
+        if self._player is None:
+            return ""
+        value = self._player.video_get_aspect_ratio()
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        return (value or "").strip()
+
+    def set_aspect(self, ratio: str) -> None:
+        """`""` means "let the file decide" - the only way back from 16:9."""
+        if self._player is not None:
+            self._player.video_set_aspect_ratio(ratio or None)
+
+    def crop(self) -> str:
+        if self._player is None:
+            return ""
+        value = self._player.video_get_crop_geometry()
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        return (value or "").strip()
+
+    def set_crop(self, ratio: str) -> None:
+        """Crop away letterboxing/matte; `""` restores the full frame."""
+        if self._player is not None:
+            self._player.video_set_crop_geometry(ratio or "")
+
+    def scale(self) -> float:
+        if self._player is None:
+            return 0.0
+        return float(self._player.video_get_scale())
+
+    def set_scale(self, factor: float) -> None:
+        """0.0 = fit the window; anything else is a fixed zoom factor."""
+        if self._player is not None:
+            self._player.video_set_scale(float(factor))
 
     # -------------------------------------------------------------- teardown
     def release(self) -> None:

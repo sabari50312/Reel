@@ -1,21 +1,22 @@
-"""Volume: mute toggle plus a horizontal slider that unfolds on hover.
+"""Volume: mute toggle plus a horizontal slider.
 
-The slider keeps a fixed width and animates a 0→1 reveal factor instead of
-animating geometry, so the surrounding layout never reflows on hover (a layout
-change would move the mute button under the cursor and cause hover flicker).
+The slider is always visible - no hover reveal. Unfolding it on hover meant the
+rail vanished the moment the pointer left, which read as the control breaking,
+and the fixed width already keeps the layout stable.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Property, QEasingCurve, QEvent, QPropertyAnimation, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPaintEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import QWidget
 
 from ..style import tokens
 from .iconbutton import IconButton
 
-_PAD = 6  # gap between mute button and slider
-_KNOB = 10.0
+_PAD = 4  # gap between mute button and slider
+_RAIL_H = float(tokens.SEEK_H)  # same rail as the seek bar: one family
+_KNOB = 6.0  # minimum fill span, so 1% still reads as something
 _SLIDER_H = 20  # hit height of the slider strip
 _STEP = 5  # wheel / arrow step, in percent
 
@@ -26,7 +27,9 @@ class VolumeBar(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(tokens.BTN + _PAD + tokens.VOL_W, tokens.BTN)
+        # Small button size: the volume control sits in the one-row card next to
+        # 34px utility buttons and must not stand out as a 40px block.
+        self.setFixedSize(tokens.BTN_SM + _PAD + tokens.VOL_W, tokens.BTN_SM)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -34,26 +37,12 @@ class VolumeBar(QWidget):
         self._muted = False
         self._hover = False
         self._dragging = False
-        self._reveal = 1.0
 
-        self.button = IconButton("volume_high", self, tip="Mute (M)")
-        self.button.move(0, (self.height() - tokens.BTN) // 2)
+        self.button = IconButton(
+            "volume_high", self, size=tokens.BTN_SM, icon_size=20, tip="Mute (M)"
+        )
+        self.button.move(0, (self.height() - tokens.BTN_SM) // 2)
         self.button.clicked.connect(self.toggle_mute)
-
-        self._reveal_anim = QPropertyAnimation(self, b"reveal", self)
-        self._reveal_anim.setDuration(tokens.GROW_MS)
-        self._reveal_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-    # ------------------------------------------------------------- animation
-    def get_reveal(self) -> float:
-        return self._reveal
-
-    def set_reveal(self, value: float) -> None:
-        if value != self._reveal:
-            self._reveal = value
-            self.update()
-
-    reveal = Property(float, get_reveal, set_reveal)
 
     # ----------------------------------------------------------------- state
     def volume_value(self) -> int:
@@ -93,7 +82,7 @@ class VolumeBar(QWidget):
 
     # --------------------------------------------------------------- geometry
     def _slider_rect(self) -> QRectF:
-        left = float(tokens.BTN + _PAD)
+        left = float(tokens.BTN_SM + _PAD)
         return QRectF(left, (self.height() - _SLIDER_H) / 2.0, float(tokens.VOL_W), _SLIDER_H)
 
     def _fraction_at(self, x: float) -> float:
@@ -110,20 +99,13 @@ class VolumeBar(QWidget):
 
     def enterEvent(self, event) -> None:  # noqa: ANN001 - Qt signature
         self._hover = True
-        self._set_expanded(True)
+        self.update()
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: ANN001 - Qt signature
         self._hover = False
-        if not self._dragging:
-            self._set_expanded(False)
+        self.update()
         super().leaveEvent(event)
-
-    def _set_expanded(self, expanded: bool) -> None:
-        self._reveal_anim.stop()
-        self._reveal_anim.setStartValue(self._reveal)
-        self._reveal_anim.setEndValue(1.0 if expanded else 0.0)
-        self._reveal_anim.start()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._over_slider(event.position().x()):
@@ -143,8 +125,6 @@ class VolumeBar(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._dragging = False
-            if not self._hover:
-                self._set_expanded(False)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -180,30 +160,31 @@ class VolumeBar(QWidget):
         super().changeEvent(event)
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        if self._reveal <= 0.01:
-            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
         rect = self._slider_rect()
-        width = rect.width() * self._reveal
-        track = QRectF(rect.left(), rect.center().y() - tokens.SEEK_H / 2.0, width, tokens.SEEK_H)
-        radius = tokens.SEEK_H / 2.0
+        width = rect.width()
+        # Same weight as the seek bar's blocks, and rounded by exactly half its
+        # height: a fatter rail with a rounder cap, never a pinched tip.
+        height = _RAIL_H
+        top = rect.center().y() - height / 2.0
+        track = QRectF(rect.left(), top, width, height)
+        radius = height / 2.0
 
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(tokens.TRACK_HOVER if self._hover else tokens.TRACK))
+        painter.setBrush(QColor(tokens.BLOCK_OFF if not self._hover else tokens.BLOCK_ON))
         painter.drawRoundedRect(track, radius, radius)
 
         fraction = 0.0 if self._muted else self._volume / 100.0
         if fraction > 0.0:
-            played = QRectF(track.left(), track.top(), width * fraction, track.height())
-            painter.setBrush(QColor(tokens.ACCENT))
-            painter.drawRoundedRect(played, radius, radius)
-
-        if self._reveal > 0.95 and (self._hover or self._dragging):
-            cx = track.left() + width * fraction
-            cy = track.center().y()
-            painter.setBrush(QColor(tokens.ACCENT))
-            painter.drawEllipse(QRectF(cx - _KNOB / 2.0, cy - _KNOB / 2.0, _KNOB, _KNOB))
+            span = max(_KNOB, width * fraction)  # a 1% volume still reads as a cap
+            painter.save()
+            painter.setClipRect(QRectF(track.left(), top, min(span, width), height))
+            veil = QColor(tokens.ACCENT)
+            veil.setAlphaF(0.45)
+            painter.setBrush(veil)
+            painter.drawRoundedRect(track, radius, radius)
+            painter.restore()
 
         painter.end()

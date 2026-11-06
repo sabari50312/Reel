@@ -6,9 +6,11 @@ script then makes that folder self-contained:
   1. copies libVLC and the plugins it actually loads into `vlc/`,
   2. prunes the encoder DLLs PyAV ships (Reel only decodes audio for the sound
      map, and those encoders are also the GPL parts of the bundle),
-  3. drops a `reel.portable` marker so settings land in `reel.ini` beside the exe
+  3. copies the licence texts the bundle has to carry (Reel's own, plus the
+     third-party notices and the LGPL/OFL texts),
+  4. drops a `reel.portable` marker so settings land in `reel.ini` beside the exe
      instead of the registry,
-  4. zips the result.
+  5. zips the result.
 
 Run:  uv run python tools/build.py [--skip-nuitka] [--no-zip]
 Nothing here is imported by the app.
@@ -20,13 +22,31 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 TARGET = DIST / "Reel"
-VERSION = "0.2.0"
+
+
+def version() -> str:
+    """The one version number, read from pyproject.toml.
+
+    Keeping a copy here is how the exe, the zip and the package ended up
+    disagreeing; the metadata is the single source instead.
+    """
+    with (ROOT / "pyproject.toml").open("rb") as handle:
+        return str(tomllib.load(handle)["project"]["version"])
+
+
+VERSION = version()
+
+# What the bundle has to carry besides code: this project's licence, the notices
+# naming every bundled component, and the full texts those notices point at.
+LICENCE_FILES = ("LICENSE", "THIRD-PARTY.md")
+LICENCE_DIR = "third_party"
 
 # VLC parts that a headless player never loads: the Qt interface (we start with
 # --intf=dummy), UI translations, skins and lua scripts.
@@ -93,6 +113,20 @@ def copy_vlc() -> int:
     return copied
 
 
+def copy_licences() -> None:
+    """Put the licence texts in the shipped folder, next to the exe that needs them."""
+    for name in LICENCE_FILES:
+        source = ROOT / name
+        if source.is_file():
+            shutil.copy2(source, TARGET / name)
+    texts = ROOT / LICENCE_DIR
+    target = TARGET / LICENCE_DIR
+    target.mkdir(parents=True, exist_ok=True)
+    for text in sorted(texts.glob("*.txt")):
+        shutil.copy2(text, target / text.name)
+    print(f"  licences: {', '.join(LICENCE_FILES)} + {LICENCE_DIR}/ ({len(list(target.glob('*.txt')))} texts)")
+
+
 def write_marker() -> None:
     (TARGET / "reel.portable").write_text("portable\n", encoding="utf-8")
 
@@ -148,6 +182,7 @@ def main() -> int:
         return 1
 
     copy_vlc()
+    copy_licences()
     write_marker()
     if not args.no_zip:
         zip_folder()

@@ -15,9 +15,43 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+import traceback
 from pathlib import Path
+
 INSTALLED_VLC = Path(r"C:\Program Files\VideoLAN\VLC")
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def log_path() -> Path:
+    """Where Reel writes its diagnostics: %LOCALAPPDATA%\\Reel\\reel.log."""
+    base = os.environ.get("LOCALAPPDATA")
+    return Path(base) / "Reel" / "reel.log" if base else Path.home() / "Reel" / "reel.log"
+
+
+def install_crash_log() -> Path:
+    """Record an unhandled exception before the process dies.
+
+    The packaged build runs without a console, so without this a failure is a
+    window that never appears and nothing to go on. Same file the rest of the app
+    logs to, so a bug report is one path to ask for.
+    """
+    log = log_path()
+    previous = sys.excepthook
+
+    def hook(kind, value, trace) -> None:
+        text = "".join(traceback.format_exception(kind, value, trace))
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("a", encoding="utf-8") as handle:
+                handle.write(f"\n[{stamp}] unhandled exception\n{text}\n")
+        except OSError:
+            print(text, file=sys.stderr, flush=True)
+        previous(kind, value, trace)
+
+    sys.excepthook = hook
+    return log
 
 
 def vlc_dir() -> Path | None:
@@ -50,10 +84,11 @@ def register_libvlc() -> Path | None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
-    register_libvlc()
+    install_crash_log()
+    vlc_folder = register_libvlc()
 
     from PySide6.QtGui import QIcon
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QMessageBox
 
     from reel.fonts import register_fonts
     from reel.main_window import MainWindow
@@ -61,6 +96,16 @@ def main(argv: list[str] | None = None) -> int:
     from reel.style import stylesheet
 
     app = QApplication(argv)
+    # A missing VLC is the one failure a user can actually fix, so say so instead
+    # of dying on `import vlc` three lines later.
+    if vlc_folder is None:
+        QMessageBox.critical(
+            None,
+            "Reel",
+            "Reel needs VLC to play anything, and no 64-bit VLC was found.\n\n"
+            "Install VLC 3 from videolan.org, then start Reel again.",
+        )
+        return 1
     # QSettings' native backend keys on these: HKCU\Software\Reel\Reel
     app.setOrganizationName("Reel")
     app.setApplicationName("Reel")

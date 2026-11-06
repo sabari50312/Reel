@@ -49,8 +49,11 @@ NUITKA_ARGS = [
     "--copyright=Personal project",
     # Data files the app reads at runtime: Nuitka only follows imports.
     "--include-data-files=src/reel/style/tokens.qss=reel/style/tokens.qss",
-    # The wordmark font travels with the app (Sora, SIL OFL - see OFL.txt).
+    # Fonts and the app icon travel with the app (see reel/paths.py).
     "--include-data-dir=src/reel/assets=reel/assets",
+    # The same .ico becomes the exe's Windows icon resource: Explorer, "Open
+    # with", shortcuts and the taskbar before the app is even running.
+    "--windows-icon-from-ico=src/reel/assets/icon/Reel.ico",
     # PyAV imports a few Cython helpers by name, which Nuitka cannot see from the
     # source alone; without them `import av` fails with "No module named 'av._cyutil'".
     "--include-package=av",

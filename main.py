@@ -52,10 +52,12 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv if argv is None else argv)
     register_libvlc()
 
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
     from reel.fonts import register_fonts
     from reel.main_window import MainWindow
+    from reel.paths import ICON
     from reel.style import stylesheet
 
     app = QApplication(argv)
@@ -64,6 +66,10 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("Reel")
     app.setApplicationDisplayName("Reel")
     app.setStyle("Fusion")  # predictable dark chrome for menus/tooltips
+    # One icon for the taskbar, alt-tab and every dialog: Qt derives each size
+    # from this, and the exe carries the same .ico as a Windows resource.
+    if ICON.is_file():
+        app.setWindowIcon(QIcon(str(ICON)))
     # Before the stylesheet: the bundled faces (Sora for the wordmark, Inter for
     # everything else) have to be in Qt's font database before anything asks for
     # them, or Qt silently substitutes Segoe UI.

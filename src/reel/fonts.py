@@ -24,9 +24,8 @@ Sitting inside the package (`reel/assets/fonts/`) rather than in a top-level
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-FONT_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
+from .paths import FONT_DIR
 
 
 def register_fonts() -> list[str]:

@@ -65,14 +65,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import shortcuts
+from . import associations, shortcuts
 from .keybindings_ui import ActionRow
 from .settings import Settings
 from .style import tokens
 from .widgets.iconbutton import IconButton
 from .widgets.icons import paint_icon
 from .widgets.syncstrip import SyncStrip
-from .widgets.settingcontrols import SegmentRow, StepperRow, TextRow, ToggleRow
+from .widgets.settingcontrols import (
+    SegmentRow,
+    SettingRow,
+    StepperRow,
+    TextRow,
+    ToggleRow,
+    ToggleSwitch,
+)
 
 def _glyph(name: str) -> QIcon:
     """A tab icon at 18px: same painted geometry as the bar, so nothing drifts."""
@@ -341,7 +348,6 @@ class _SlideHost(QWidget):
 @dataclass(frozen=True)
 class _Entry:
     """One searchable row: what it says, where it lives, and what to flash."""
-
     tab: str
     subtab: int | None
     title: str
@@ -353,6 +359,110 @@ class _Entry:
         if self.subtab is None:
             return tab_label
         return f"{tab_label} › {_SUB_LABELS[self.subtab]}"
+
+
+class WindowsIntegration(QWidget):
+    """The "Open with" toggle. The registry is the state, not the settings store.
+
+    Unlike every other row in this panel, nothing is persisted on our side: the
+    keys either exist and point at this exe or they do not. Reading that back is
+    cheaper than keeping a copy that can drift, and it means an entry left behind
+    by an older, moved copy of the folder shows up as such.
+
+    The caption is deliberately honest - the toggle adds Reel to the *list*, it
+    does not steal the default handler.
+    """
+
+    TITLE = "Add Reel to the Open with menu"
+    HINT = (
+        'Adds Reel to the "Open with" list for the usual video and audio types. '
+        "Your current default player is left alone."
+    )
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._exe = associations.target_exe()
+        self._switch = ToggleSwitch(self)
+        self._switch.setEnabled(self._exe is not None)
+        self._switch.setChecked(associations.is_registered(self._exe))
+        self._row = SettingRow(self.TITLE, self.HINT, self._switch, self)
+
+        self._note = QLabel("", self)
+        self._note.setObjectName("RowHint")
+        self._note.setWordWrap(True)
+
+        self._defaults = QPushButton("Choose a default in Windows", self)
+        self._defaults.setObjectName("RowReset")  # text button, same as "Reset"
+        self._defaults.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._defaults.setEnabled(self._exe is not None)
+        self._defaults.clicked.connect(associations.open_default_apps)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.setSpacing(10)
+        footer.addWidget(self._note, 1)
+        footer.addWidget(self._defaults, 0, Qt.AlignmentFlag.AlignTop)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 4)
+        layout.setSpacing(2)
+        layout.addWidget(self._row)
+        layout.addLayout(footer)
+
+        self._switch.toggled.connect(self._apply)
+        self._refresh()
+
+    # search index looks for these two methods on any widget in a page
+    def search_title(self) -> str:
+        return self.TITLE
+
+    def search_hint(self) -> str:
+        return self.HINT
+
+    def _refresh(self) -> None:
+        if self._exe is None:
+            self._note.setText(
+                "This build could not work out where its own Reel.exe lives, so there is "
+                "nothing to register."
+                if associations.is_frozen()
+                else "Available in the packaged app - a dev run would have to register "
+                "Python itself."
+            )
+            return
+        stored = associations.registered_exe()
+        if stored is not None and not associations.is_registered(self._exe):
+            self._note.setText(
+                f"Registered from {stored.parent}. That folder has moved - toggle off and "
+                "on again to point it here."
+            )
+        elif associations.is_registered(self._exe):
+            self._note.setText(
+                "Right-click a file → Open with → Choose another app → Reel. Windows "
+                "keeps the default per file type, so pick it once per extension."
+            )
+        else:
+            self._note.setText(
+                f"{len(associations.VIDEO)} video and {len(associations.AUDIO)} audio "
+                "types. Nothing is written for this exe until you turn the switch on."
+            )
+
+    def _apply(self, checked: bool) -> None:
+        try:
+            if checked:
+                result = associations.register(self._exe)
+                if not result.ok:
+                    self._note.setText(
+                        "Windows refused part of the registration: " + result.failed[0]
+                    )
+                    self._switch.blockSignals(True)
+                    self._switch.setChecked(False)
+                    self._switch.blockSignals(False)
+                    return
+            else:
+                associations.unregister(self._exe)
+        finally:
+            if self._switch.isChecked() == checked:
+                self._refresh()
 
 
 class SettingsPanel(QWidget):
@@ -636,6 +746,7 @@ class SettingsPanel(QWidget):
 
     def _build_interface_page(self) -> QWidget:
         settings = self._settings
+        self._integration = WindowsIntegration(self)
         return self._build_page(
             "Interface",
             "How the player looks and responds.",
@@ -681,6 +792,12 @@ class SettingsPanel(QWidget):
                     ],
                 ),
                 ("Window", [ToggleRow(settings, "ui.always_on_top", "Keep the player above other windows")]),
+                (
+                    "Windows",
+                    [
+                        self._integration,
+                    ],
+                ),
             ],
         )
 

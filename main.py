@@ -89,6 +89,13 @@ def main(argv: list[str] | None = None) -> int:
     single.message.connect(_forward)
     window.show()
 
+    # A portable folder that has been moved leaves its "Open with" entry pointing
+    # at the old path. The user already opted in when they turned that on, so fix
+    # the path silently; nothing is registered for anyone who never did.
+    from reel.associations import refresh_if_moved
+
+    refresh_if_moved()
+
     exit_code = app.exec()
     single.close()
     return exit_code

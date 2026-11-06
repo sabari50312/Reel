@@ -121,11 +121,24 @@ def main() -> int:
         subprocess.run([sys.executable, "-m", "nuitka", *NUITKA_ARGS], cwd=ROOT, check=True)
 
     # Nuitka names the output folder after the entry module (`main.dist`); the
-    # shipped folder should read as the app, so move it into place.
+    # shipped folder should read as the app, so move it into place. A rebuild must
+    # replace the previous folder - Nuitka writes to `main.dist` every time, so
+    # leaving the old `Reel/` in place would ship the previous executable.
     built = DIST / "main.dist"
-    if built.is_dir() and not TARGET.exists():
+    if built.is_dir():
+        # Keep the test run's settings: they describe what the user was doing when
+        # they found the bug, and rebuilding is not a reason to lose them.
+        carried: dict[str, bytes] = {}
+        if TARGET.exists():
+            for name in ("reel.ini",):
+                previous = TARGET / name
+                if previous.is_file():
+                    carried[name] = previous.read_bytes()
+            shutil.rmtree(TARGET)
         shutil.move(str(built), str(TARGET))
-        print(f"  renamed {built.name} -> {TARGET.name}")
+        for name, data in carried.items():
+            (TARGET / name).write_bytes(data)
+        print(f"  renamed {built.name} -> {TARGET.name}" + (" (kept reel.ini)" if carried else ""))
 
     if not (TARGET / "Reel.exe").is_file():
         print(f"! {TARGET / 'Reel.exe'} missing - run without --skip-nuitka first")

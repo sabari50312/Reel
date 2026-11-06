@@ -28,16 +28,19 @@ from PySide6.QtCore import (
     QTimer,
     Qt,
 )
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPaintEvent
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPaintEvent, QPen
 from PySide6.QtWidgets import QMainWindow, QWidget
 
 from .style import tokens
 from .widgets.icons import paint_icon
 
-_PILL_MARGIN = 24  # gap between the pill and the right edge of the video
-_PILL_ICON = 26
-_BAR_W = 10.0
-_BAR_H = 200.0
+_PILL_MARGIN = 34  # gap between the readout and the right edge of the video
+_PILL_ICON = 40
+_PILL_ICON_TOP = 34.0
+_BAR_W = 14.0  # a real slider, not a hairline
+_BAR_TOP = 104.0
+_BAR_H = 268.0
+_CAPTION_TOP = 398.0
 
 
 class Feedback(QWidget):
@@ -220,37 +223,43 @@ class Feedback(QWidget):
         painter.drawText(QRectF(x, y, width, height), Qt.AlignmentFlag.AlignCenter, self._text)
 
     def _paint_pill(self, painter: QPainter) -> None:
+        """Right-hand volume readout, standing on its own.
+
+        No card, no border, no fill behind it: a panel here read as a phone volume
+        HUD floating over the film. What is left is the information itself - icon,
+        a wide track with a green level, and the number - drawn straight onto the
+        video with only their own pixels.
+        """
         x = self.width() - _PILL_MARGIN - tokens.PILL_W
         y = (self.height() - tokens.PILL_H) / 2.0
-        painter.setPen(QPen(QColor(tokens.BAR_BORDER), 1.0))
-        painter.setBrush(QColor(tokens.MENU_BG))
-        painter.drawRoundedRect(
-            QRectF(x, y, tokens.PILL_W, tokens.PILL_H), tokens.PILL_W / 2.0, tokens.PILL_W / 2.0
-        )
+        centre = x + tokens.PILL_W / 2.0
 
-        icon_rect = QRectF(
-            x + (tokens.PILL_W - _PILL_ICON) / 2.0, y + 18, _PILL_ICON, _PILL_ICON
-        )
+        icon_rect = QRectF(centre - _PILL_ICON / 2.0, y + _PILL_ICON_TOP, _PILL_ICON, _PILL_ICON)
         paint_icon(painter, self._icon, icon_rect, tokens.TEXT)
 
-        bar_x = x + (tokens.PILL_W - _BAR_W) / 2.0
-        bar_y = y + 58.0
-        painter.setBrush(QColor(255, 255, 255, 72))
-        painter.drawRoundedRect(QRectF(bar_x, bar_y, _BAR_W, _BAR_H), _BAR_W / 2, _BAR_W / 2)
-        if self._fraction > 0.0:
-            fill_h = _BAR_H * self._fraction
-            painter.setBrush(QColor(tokens.TEXT))
-            painter.drawRoundedRect(
-                QRectF(bar_x, bar_y + _BAR_H - fill_h, _BAR_W, fill_h), _BAR_W / 2, _BAR_W / 2
-            )
+        track = QRectF(centre - _BAR_W / 2.0, y + _BAR_TOP, _BAR_W, _BAR_H)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 34))
+        painter.drawRoundedRect(track, _BAR_W / 2.0, _BAR_W / 2.0)
 
-        font = painter.font()
-        font.setFamily(tokens.FONT_FAMILY)
-        font.setPixelSize(tokens.FS_TIME)
+        fraction = max(0.0, min(1.0, self._fraction))
+        if fraction > 0.0:
+            fill_h = max(_BAR_W, _BAR_H * fraction)
+            body = QRectF(track.left(), track.bottom() - fill_h, _BAR_W, fill_h)
+            level = QLinearGradient(body.topLeft(), body.bottomLeft())
+            level.setColorAt(0.0, QColor(tokens.ACCENT_GREEN).lighter(112))
+            level.setColorAt(1.0, QColor(tokens.ACCENT_GREEN).darker(124))
+            painter.setBrush(level)
+            painter.drawRoundedRect(body, _BAR_W / 2.0, _BAR_W / 2.0)
+
+        font = QFont(tokens.FONT_MONO)
+        font.setPixelSize(20)
+        font.setWeight(QFont.Weight.DemiBold)
+        font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.6)
         painter.setFont(font)
         painter.setPen(QColor(tokens.TEXT))
         painter.drawText(
-            QRectF(x, bar_y + _BAR_H + 12.0, tokens.PILL_W, 20.0),
+            QRectF(x, y + _CAPTION_TOP, tokens.PILL_W, 30.0),
             Qt.AlignmentFlag.AlignCenter,
             self._text,
         )

@@ -686,6 +686,10 @@ class SettingsPanel(QWidget):
 
     def _build_audio_tab(self) -> QWidget:
         settings = self._settings
+        # Describes the map drawn behind the seek bar (bands and how many have sound).
+        self.map_note = QLabel("Sound map builds when a file opens", self)
+        self.map_note.setObjectName("RowHint")
+        self.map_note.setWordWrap(True)
         self.audio_tracks = TrackList("No audio in this file", self)
         self.audio_tracks.chosen.connect(self._on_audio_chosen)
         self.audio_delay = DelayRow(
@@ -702,6 +706,12 @@ class SettingsPanel(QWidget):
             "Pick the track here; B cycles them without opening the panel.",
             [
                 ("Tracks", [self.audio_tracks]),
+                (
+                    "Sound map",
+                    [
+                        self.map_note,
+                    ],
+                ),
                 (
                     "Sync",
                     [
@@ -751,6 +761,10 @@ class SettingsPanel(QWidget):
         load.setCursor(Qt.CursorShape.PointingHandCursor)
         load.clicked.connect(self.load_subtitle_requested)
 
+        self._style_note = QLabel("Changes reload the file at the same position.", self)
+        self._style_note.setObjectName("RowHint")
+        self._style_note.setWordWrap(True)
+
         actions = QWidget(self)
         actions_row = QHBoxLayout(actions)
         actions_row.setContentsMargins(0, 0, 0, 0)
@@ -776,6 +790,26 @@ class SettingsPanel(QWidget):
                         self.sync_strip,
                         self.subtitle_delay,
                         StepperRow(settings, "sub.step_ms", "Delay step", 10, 500, 10, suffix=" ms"),
+                    ],
+                ),
+                (
+                    "Appearance",
+                    [
+                        StepperRow(settings, "sub.text_scale", "Size", 50, 300, 10, suffix=" %"),
+                        StepperRow(settings, "sub.margin_pct", "Height from bottom", 0, 45, 3, suffix=" %"),
+                        StepperRow(settings, "sub.background", "Background", 0, 100, 10, suffix=" %"),
+                        SegmentRow(
+                            settings,
+                            "sub.outline",
+                            "Outline",
+                            [
+                                ("none", "None"),
+                                ("thin", "Thin"),
+                                ("normal", "Normal"),
+                                ("thick", "Thick"),
+                            ],
+                        ),
+                        self._style_note,
                     ],
                 ),
                 # One row of actions, then the online account settings under their
@@ -1063,6 +1097,11 @@ class SettingsPanel(QWidget):
         """Called by the player after a file opens or a track changes."""
         if self.isVisible():
             self.refresh_dynamic()
+
+    def set_map_note(self, text: str) -> None:
+        """Describe the sound map currently drawn behind the seek bar."""
+        if getattr(self, "map_note", None) is not None:
+            self.map_note.setText(text)
 
     def set_engine(self, engine) -> None:  # noqa: ANN001
         self._engine = engine

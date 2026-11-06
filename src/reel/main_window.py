@@ -39,7 +39,18 @@ from .video_surface import VideoSurface
 from .widgets import ControlBar
 from .win_dwm import apply_dark_titlebar, set_topmost
 
+def _same_path(a: str, b: str) -> bool:
+    """Compare two paths the way the filesystem does."""
+    if not a or not b:
+        return False
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
 EMPTY_HINT = "Double-click a file to play   ·   Ctrl+O to browse   ·   or drop it here"
+
+_SUBTITLE_STYLE_KEYS = frozenset(
+    {"sub.text_scale", "sub.margin_pct", "sub.background", "sub.outline"}
+)
 
 MEDIA_FILTER = (
     "Video (*.mkv *.mp4 *.webm *.avi *.mov *.m4v *.ts *.m2ts *.mpg *.mpeg *.wmv *.flv *.ogv);;"
@@ -140,7 +151,10 @@ class MainWindow(QMainWindow):
         # would paint over libVLC's frames, which share the same HWND.
         self.surface.set_empty_text(EMPTY_HINT)
 
-        self.engine = Player(self.surface.hwnd(), parent=self)
+        self._style_rebuilding = False
+        self.engine = Player(
+            self.surface.hwnd(), parent=self, args=self._subtitle_instance_args()
+        )
         self.engine.opened.connect(self._on_opened)
         self.engine.error.connect(self._on_error)
         self.engine.ended.connect(self._on_ended)
@@ -164,6 +178,7 @@ class MainWindow(QMainWindow):
         self.audio_map.ready.connect(self._on_audio_map)
         self.audio_map.progress.connect(self._on_audio_map)
         self.audio_map.analysing.connect(self._on_analysing)
+        self.audio_map.summary.connect(self._on_map_summary)
         self.controls = ControlBar(self.engine, self)
         self.overlay.set_content(self.controls)
         self.controls.set_loaded(False)
@@ -196,6 +211,14 @@ class MainWindow(QMainWindow):
         self._prompt = ResumePrompt(self)
         self._prompt.chosen.connect(self._on_resume_choice)
         self._pending_resume = 0
+        self._restore_style: tuple[int, int, bool] | None = None
+
+        # Subtitle appearance is an input option, so a change means reloading the
+        # file; debounce it or a stepper click reloads several times.
+        self._restyle_timer = QTimer(self)
+        self._restyle_timer.setSingleShot(True)
+        self._restyle_timer.setInterval(500)
+        self._restyle_timer.timeout.connect(self._restyle_subtitles)
         self._resume_timer = QTimer(self)
         self._resume_timer.setInterval(10_000)
         self._resume_timer.timeout.connect(self._remember_position)
@@ -229,6 +252,8 @@ class MainWindow(QMainWindow):
             self.engine.set_volume(int(self.settings.get("volume")))
         elif key == "muted":
             self.engine.set_muted(bool(self.settings.get("muted")))
+        elif key in _SUBTITLE_STYLE_KEYS:
+            self._schedule_subtitle_restyle()
         elif key == "ui.overlay_delay_ms":
             self.overlay.set_hide_delay(int(self.settings.get("ui.overlay_delay_ms")))
         elif key == "ui.always_on_top":
@@ -285,7 +310,10 @@ class MainWindow(QMainWindow):
         self.files.close_panel()
         # A new film has neither its sound map nor its captions yet.
         self._audio_levels = None
-        self._sub_cues = []
+        self._sub_cues: list[tuple[int, int]] = []
+        # The subtitle file currently in use. A reload (subtitle appearance,
+        # :sub-file re-open) has to re-attach it, or the subtitles silently vanish.
+        self._subtitle_path: str | None = None
         self.panel.set_sync_source(None, [], 0)
         self._at_end = False
         self.surface.set_empty_text(EMPTY_HINT)
@@ -312,35 +340,52 @@ class MainWindow(QMainWindow):
             sidecar = sidecar_subtitle(path)
             if sidecar:
                 self._load_cues(sidecar)
+                self._subtitle_path = sidecar
+
+    def _audio_track_index(self) -> int:
+        """Position of the active audio track among the file's audio streams.
+
+        libVLC track ids are not stream indices (they are muxer ids), so the id is
+        mapped through the track list; the analyser takes a plain index because
+        FFmpeg addresses streams that way.
+        """
+        tracks = self.engine.audio_tracks()
+        if len(tracks) < 2:
+            return 0
+        ids = [track_id for track_id, _name in tracks]
+        current = self.engine.current_audio()
+        return ids.index(current) if current in ids else 0
+
+    def _map_request_is_current(self, path: str) -> bool:
+        """Signals carry the path the request was made with, not the engine's."""
+        return _same_path(path, self.engine.current_path() or "")
 
     def _request_audio_map(self, path: str) -> None:
-        """Paint loudness bands immediately when cached, otherwise async.
+        """Paint the speech bands immediately when cached, otherwise async.
 
-        With several audio tracks the map has to follow the active one, which means
-        decoding that track (rate 1x, in the background); single-track files take
-        the fast whole-file transcode instead.
+        The map follows the *active* audio track: a film with a commentary track
+        has a different dialogue pattern per track, so the analyser is given the
+        stream index rather than a fixed choice.
         """
         self.controls.set_audio_map(None)
-        track = None
-        if len(self.engine.audio_tracks()) > 1:
-            track = self.engine.current_audio()
-            if track < 0:
-                track = None
         self.controls.set_analysis(0.0)  # cleared below when the map is cached
-        levels = self.audio_map.request(path, track)
+        levels = self.audio_map.request(path, self._audio_track_index())
         if levels:
             self.controls.set_analysis(None)
             self.controls.set_audio_map(levels)
             self._audio_levels = levels
             self.panel.sync_strip.set_levels(levels)
 
+    def _on_map_summary(self, path: str, text: str) -> None:
+        self.panel.set_map_note(text)
+
     def _on_analysing(self, path: str, fraction: float) -> None:
         # A negative fraction means "gave up" (no audio track, bad file, cancel).
-        if path == self.engine.current_path():
+        if self._map_request_is_current(path):
             self.controls.set_analysis(None if fraction < 0 else fraction)
 
     def _on_audio_map(self, path: str, levels: object) -> None:
-        if path == self.engine.current_path() and isinstance(levels, list):
+        if self._map_request_is_current(path) and isinstance(levels, list):
             self.controls.set_audio_map(levels)
             self._audio_levels = levels
             self.panel.sync_strip.set_levels(levels)
@@ -355,11 +400,112 @@ class MainWindow(QMainWindow):
             return
         self._resume.remember(path, self.engine.position_ms(), duration)
 
+    def _subtitle_instance_args(self) -> list[str]:
+        """Subtitle appearance as libVLC *instance* options.
+
+        These have to be instance options: the same names passed as media
+        options are ignored (measured on 1080p - text stayed 58 px at scale
+        100/200/300, while `--sub-text-scale=200` rendered 98 px). Changing them
+        therefore rebuilds libVLC, which is what `_restyle_subtitles` does.
+
+        `sub-margin` is in pixels from the bottom, so the setting is a percentage
+        of the video height (720 until a frame reports a size).
+        """
+        engine = getattr(self, "engine", None)  # absent while the ctor builds it
+        height = (engine.video_height() if engine is not None else 0) or 720
+        margin = int(round(float(self.settings.get("sub.margin_pct")) / 100.0 * height))
+        background = int(round(float(self.settings.get("sub.background")) * 255.0 / 100.0))
+        outline = {"none": "0", "thin": "2", "normal": "4", "thick": "6"}[
+            str(self.settings.get("sub.outline"))
+        ]
+        return [
+            f"--sub-text-scale={int(self.settings.get('sub.text_scale'))}",
+            f"--sub-margin={max(0, margin)}",
+            f"--freetype-background-opacity={max(0, min(255, background))}",
+            f"--freetype-outline-thickness={outline}",
+        ]
+
+    def _subtitle_index(self) -> int:
+        """Position of the active subtitle track in `subtitle_tracks()`, or -1."""
+        current = self.engine.current_subtitle()
+        for index, (track_id, _label) in enumerate(self.engine.subtitle_tracks()):
+            if track_id == current:
+                return index
+        return -1
+
+    def _choose_subtitle(self, track_id: int) -> None:
+        self.engine.set_subtitle(track_id)
+        path = self.engine.current_path()
+        if path:
+            self._resume.remember_pick(path, "sub", str(self._subtitle_index()))
+
+    def _schedule_subtitle_restyle(self) -> None:
+        self._restyle_timer.start()  # debounce: a stepper click is many changes
+
+    def _restyle_subtitles(self) -> None:
+        """Rebuild libVLC and re-open at the same spot.
+
+        Subtitle appearance only takes effect on a fresh Instance, so this tears
+        the engine down and puts it back with the new options, then reopens the
+        file with its subtitle, track, delay and position restored.
+        """
+        path = self.engine.current_path()
+        if not path or not self.engine.has_media() or self._style_rebuilding:
+            return
+        position = self.engine.position_ms()
+        playing = self.engine.is_playing()
+        self._restore_style = (self._subtitle_index(), self.engine.subtitle_delay(), playing)
+        self._style_rebuilding = True
+        try:
+            if not self.engine.rebuild(self._subtitle_instance_args()):
+                return
+            self.engine.open(
+                path,
+                autoplay=playing,
+                start_ms=position,
+                subtitle=self._subtitle_path,
+            )
+        finally:
+            self._style_rebuilding = False
+
+    def _restore_style_after_open(self) -> None:
+        """Put the subtitle track and delay back after a restyle reload."""
+        pending, self._restore_style = self._restore_style, None
+        if pending is None:
+            return
+        index, delay, _playing = pending
+        tracks = self.engine.subtitle_tracks()
+        if index >= 0 and index < len(tracks):
+            self.engine.set_subtitle(tracks[index][0])
+        elif index < 0 and tracks:
+            self.engine.set_subtitle(-1)
+        else:
+            self._restore_picked_subtitle()
+        self.engine.set_subtitle_delay(delay)
+
+    def _restore_picked_subtitle(self) -> None:
+        """Remember the subtitle track per file, so reopening keeps the choice."""
+        path = self.engine.current_path()
+        tracks = self.engine.subtitle_tracks()
+        if not path or not tracks:
+            return
+        stored = self._resume.pick(path, "sub")
+        if stored == "":
+            return
+        try:
+            index = int(stored)
+        except ValueError:
+            return
+        if 0 <= index < len(tracks):
+            self.engine.set_subtitle(tracks[index][0])
+
     def _on_opened(self, duration_ms: int, has_video: bool) -> None:  # noqa: ARG002
         self._at_end = False
         self.controls.set_loaded(True)
         self.panel.refresh_tracks()
         self.panel.set_sync_source(self._audio_levels, self._sub_cues, duration_ms)
+        # Tracks appear a moment after the input opens.
+        QTimer.singleShot(700, self._restore_style_after_open)
         if has_video:
             self.surface.set_empty_text(None)
         self.overlay.wake()
@@ -446,6 +592,7 @@ class MainWindow(QMainWindow):
         if not self.engine.has_media():
             return
         picked = self.engine.cycle_subtitle()
+        self._choose_subtitle(picked)
         label = next((name for track_id, name in self.engine.subtitle_tracks() if track_id == picked), "")
         self.overlay.wake()
         if picked < 0:
@@ -848,7 +995,7 @@ class MainWindow(QMainWindow):
         off.setCheckable(True)
         off.setChecked(self.engine.current_subtitle() < 0)
         subtitle_group.addAction(off)
-        off.triggered.connect(lambda _checked=False: self.engine.set_subtitle(-1))
+        off.triggered.connect(lambda _checked=False: self._choose_subtitle(-1))
         subtitle_tracks = self.engine.subtitle_tracks()
         if subtitle_tracks:
             subtitle_menu.addSeparator()
@@ -856,7 +1003,7 @@ class MainWindow(QMainWindow):
                 subtitle_menu,
                 subtitle_tracks,
                 self.engine.current_subtitle(),
-                self.engine.set_subtitle,
+                self._choose_subtitle,
                 subtitle_group,
             )
         else:
@@ -999,6 +1146,7 @@ class MainWindow(QMainWindow):
 
         self.overlay.wake()
         self._load_cues(path)
+        self._subtitle_path = path
         self._subtitle_fallback = (source, path)
         if not self.engine.attach_subtitle(path):
             # libVLC refused outright; no point waiting for the retry loop.
@@ -1030,7 +1178,9 @@ class MainWindow(QMainWindow):
         position = self.engine.position_ms()
         was_playing = self.engine.is_playing()
         self._load_cues(path)
-        if self.engine.open(source, autoplay=was_playing, subtitle=path):
+        if self.engine.open(
+            source, autoplay=was_playing, subtitle=path
+        ):
             QTimer.singleShot(700, lambda: self.engine.seek_ms(position))
             self.feedback.show_text("Subtitles loaded")
         else:

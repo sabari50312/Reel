@@ -84,8 +84,9 @@ FLASH_IN_MS = 90  # persistent feedback: fade in
 FLASH_HOLD_MS = 500  # persistent feedback: time at full opacity
 FLASH_OUT_MS = 180  # persistent feedback: fade out
 FLASH_DISC = 88  # diameter of the centre icon disc
-PILL_W = 56  # right-hand volume pill
-PILL_H = 300
+PILL_W = 96  # right-hand volume readout (no container)
+PILL_H = 460
+PILL_RADIUS = 26  # taller capsule: a corner, not a pill
 
 
 # ---- values exposed to tokens.qss via string.Template ----------------------

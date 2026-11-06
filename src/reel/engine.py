@@ -12,6 +12,7 @@ Design rules (see context.md):
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import vlc
@@ -55,16 +56,23 @@ class Player(QObject):
     _sig_error = Signal()
     _sig_vout = Signal()
 
-    def __init__(self, hwnd: int = 0, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        hwnd: int = 0,
+        parent: QObject | None = None,
+        args: Sequence[str] = (),
+    ) -> None:
         super().__init__(parent)
 
-        self._instance = vlc.Instance(*VLC_ARGS)
+        self._args: tuple[str, ...] = tuple(args)
+        self._instance = vlc.Instance(*VLC_ARGS, *self._args)
         if self._instance is None:
             raise RuntimeError("libVLC failed to initialise (is VLC installed?)")
 
         self._player: vlc.MediaPlayer = self._instance.media_player_new()
         self._media: vlc.Media | None = None
         self._path: str | None = None  # kept for replay(): see replay()
+        self._options: dict[str, str] = {}  # last input options, reused by replay()
         self._hwnd = hwnd
         self._duration = 0
         self._volume = 100  # cached: _player is gone after release()
@@ -93,6 +101,57 @@ class Player(QObject):
         self._sig_vout.connect(self._on_vout, queued)
 
         self._attach_events()
+
+    # -------------------------------------------------------- configuration
+    # libVLC reads subtitle appearance (--sub-text-scale, --sub-margin,
+    # --freetype-background-opacity, --freetype-outline-thickness) only when the
+    # Instance is created; the same names as media options are ignored. Measured
+    # on 1080p: media options left the text at 58 px for 100/200/300, while
+    # --sub-text-scale=200 rendered 98 px. So changing the look means a new
+    # Instance, which means a new player - hence rebuild().
+    def rebuild(self, args: Sequence[str]) -> bool:
+        """Recreate libVLC with different global options, keeping volume/mute."""
+        if self._released:
+            return False
+
+        # Create the new instance *before* tearing the old one down: libVLC
+        # occasionally refuses a fresh Instance in the same process right after a
+        # release, and a swap keeps the widget's HWND bound the whole time.
+        new_args = tuple(args)
+        new_instance = vlc.Instance(*VLC_ARGS, *new_args)
+        if new_instance is None:
+            return False
+        new_player = new_instance.media_player_new()
+        if new_player is None:
+            new_instance.release()
+            return False
+
+        self._poll.stop()
+        old_player, old_instance = self._player, self._instance
+        self._instance, self._player = new_instance, new_player
+        self._args = new_args
+        self._media = None
+        self._duration = 0
+        self._video_reported = False
+        self._sub_pending = None
+        self._callbacks.clear()
+        self._attach_events()
+        self._apply_input_settings()
+        self._player.audio_set_volume(self._volume)
+        self._player.audio_set_mute(self._muted)
+
+        if old_player is not None:
+            try:
+                old_player.stop()
+                old_player.release()
+            except Exception:  # noqa: BLE001
+                pass
+        if old_instance is not None:
+            try:
+                old_instance.release()
+            except Exception:  # noqa: BLE001
+                pass
+        return True
 
     # ------------------------------------------------------------- events
     def _attach_events(self) -> None:
@@ -199,14 +258,19 @@ class Player(QObject):
     # ------------------------------------------------------------- controls
     def set_hwnd(self, hwnd: int) -> None:
         self._hwnd = hwnd
-        if hwnd:
-            self._player.set_hwnd(hwnd)
-            # VLC's vout creates its own child window inside that HWND and would
-            # swallow mouse/wheel events over the video. Turning its input off
-            # makes it forward them to the parent, which is our Qt widget.
-            # Verified: without these two calls mouse+whell events never reach Qt.
-            self._player.video_set_mouse_input(False)
-            self._player.video_set_key_input(False)
+        self._apply_input_settings()
+
+    def _apply_input_settings(self) -> None:
+        """Give the video output our HWND but keep input events for Qt."""
+        if self._player is None or not self._hwnd:
+            return
+        self._player.set_hwnd(self._hwnd)
+        # VLC's vout creates its own child window inside that HWND and would
+        # swallow mouse/wheel events over the video. Turning its input off makes
+        # it forward them to the parent, which is our Qt widget. Verified: without
+        # these two calls mouse and wheel events never reach Qt.
+        self._player.video_set_mouse_input(False)
+        self._player.video_set_key_input(False)
 
     def open(
         self,
@@ -214,6 +278,7 @@ class Player(QObject):
         autoplay: bool = True,
         subtitle: str | None = None,
         start_ms: int = 0,
+        options: dict[str, str] | None = None,
     ) -> bool:
         if self._player is None or self._instance is None:
             self.error.emit("The player has been shut down.")
@@ -239,6 +304,11 @@ class Player(QObject):
             # seek guard and the demuxer would fight over).
             media.add_option(f":start-time={start_ms / 1000.0:.3f}")
 
+        # Subtitle appearance has no live API in libVLC 3, so it rides along as
+        # input options; changing it means reopening the file.
+        for name, value in (options or {}).items():
+            media.add_option(f":{name}={value}")
+
         if not autoplay:
             # libVLC's own "open but hold": the first frame is decoded and shown,
             # the clock stays stopped. Beats play()+pause(), which races the
@@ -247,6 +317,7 @@ class Player(QObject):
 
         self._media = media
         self._path = str(source)
+        self._options = dict(options or {})
         self._duration = 0
         self._video_reported = False
         self._player.set_media(media)
@@ -263,7 +334,7 @@ class Player(QObject):
         """
         if not self._path or self._player is None:
             return False
-        return self.open(self._path)
+        return self.open(self._path, options=self._options)
 
     def play(self) -> None:
         if self._player is None:
@@ -322,6 +393,16 @@ class Player(QObject):
 
     def has_video(self) -> bool:
         return self._player is not None and self._has_video()
+
+    def video_height(self) -> int:
+        """Height of the current video in pixels, 0 when there is none."""
+        if self._player is None:
+            return 0
+        try:
+            _width, height = self._player.video_get_size()
+        except Exception:  # noqa: BLE001 - no video output yet
+            return 0
+        return max(0, int(height))
 
     # --------------------------------------------------------------- volume
     def volume(self) -> int:

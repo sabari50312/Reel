@@ -77,6 +77,12 @@ SPECS: tuple[Spec, ...] = (
     _spec("play.short_step_s", 10, 1, 60),
     _spec("play.long_step_s", 30, 5, 300),
     _spec("sub.step_ms", 50, 10, 500),
+    # Subtitle appearance. libVLC 3 has no live styling API, so these travel as
+    # media options when an input is created (see MainWindow._subtitle_options).
+    _spec("sub.text_scale", 100, 50, 300),
+    _spec("sub.margin_pct", 6, 0, 45),
+    _spec("sub.background", 0, 0, 100),
+    _spec("sub.outline", "normal", choices=("none", "thin", "normal", "thick")),
     _spec("audio.step_ms", 50, 10, 500),
     # Subtitle search (OpenSubtitles): key from opensubtitles.com -> Settings -> API
     _spec("sub.api_key", ""),
@@ -302,6 +308,19 @@ class ResumeStore:
     def forget(self, path: str) -> None:
         if path:
             self._settings._store.remove(self._key(path))
+
+    # Per-file *choices*, separate from resume positions: which subtitle track
+    # the user picked for this film, so reopening does not fall back to VLC's
+    # default (often "the one that happens to be first").
+    def pick(self, path: str, slot: str) -> str:
+        if not path:
+            return ""
+        return str(self._settings._store.value(f"{self._key(path)}/{slot}", ""))
+
+    def remember_pick(self, path: str, slot: str, value: str) -> None:
+        if not path:
+            return
+        self._settings._store.setValue(f"{self._key(path)}/{slot}", str(value))
 
     def _trim(self) -> None:
         store = self._settings._store

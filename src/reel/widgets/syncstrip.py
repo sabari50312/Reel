@@ -126,6 +126,7 @@ class SyncStrip(QWidget):
             # leaving a blank bar that looks broken.
             font = QFont(tokens.FONT_FAMILY)
             font.setPixelSize(tokens.FS_SMALL - 1)
+            font.setWeight(QFont.Weight.Medium)
             painter.setFont(font)
             painter.setPen(QPen(QColor(tokens.TEXT_FAINT)))
             painter.drawText(

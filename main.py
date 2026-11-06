@@ -1,9 +1,14 @@
 """Reel launcher.
 
-Two jobs and nothing else:
-  1. put libVLC's directory on the DLL search path *before* anything imports vlc
-     (python-vlc does not find libvlc.dll on its own),
-  2. start the Qt application with Reel's stylesheet.
+Three jobs and nothing else:
+  1. find libVLC and put its folder on the DLL search path *before* anything
+     imports vlc (python-vlc does not locate libvlc.dll on its own),
+  2. make sure only one player runs, forwarding a file to it when it does,
+  3. start the Qt application with Reel's stylesheet.
+
+`vlc_dir()` matters for packaging: a built Reel carries its own `vlc/` folder
+next to the exe, so the search order is environment override, bundled copy,
+project-local copy, then the machine's VLC install.
 """
 
 from __future__ import annotations
@@ -11,13 +16,36 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-VLC_DIR = Path(r"C:\Program Files\VideoLAN\VLC")
+INSTALLED_VLC = Path(r"C:\Program Files\VideoLAN\VLC")
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 
-def register_libvlc() -> None:
+def vlc_dir() -> Path | None:
+    """Folder containing libvlc.dll, or None when no copy can be found."""
+    exe_dir = Path(sys.executable).resolve().parent
+    candidates = []
+    override = os.environ.get("REEL_VLC_DIR")
+    if override:
+        candidates.append(Path(override))
+    candidates += [exe_dir / "vlc", exe_dir / "VLC", PROJECT_ROOT / "vlc", INSTALLED_VLC]
+    for candidate in candidates:
+        if (candidate / "libvlc.dll").is_file():
+            return candidate
+    return None
+
+
+def register_libvlc() -> Path | None:
     """Make libvlc.dll importable. Safe to call when VLC is not installed."""
-    if sys.platform == "win32" and VLC_DIR.is_dir():
-        os.add_dll_directory(str(VLC_DIR))
+    folder = vlc_dir()
+    if folder is None or sys.platform != "win32":
+        return folder
+    os.add_dll_directory(str(folder))
+    plugins = folder / "plugins"
+    if plugins.is_dir():
+        # libVLC normally looks next to its own DLL, but being explicit survives
+        # the copy step of a packaged build.
+        os.environ.setdefault("VLC_PLUGIN_PATH", str(plugins))
+    return folder
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from PySide6.QtWidgets import QApplication
 
+    from reel.fonts import register_fonts
     from reel.main_window import MainWindow
     from reel.style import stylesheet
 
@@ -35,13 +64,34 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("Reel")
     app.setApplicationDisplayName("Reel")
     app.setStyle("Fusion")  # predictable dark chrome for menus/tooltips
+    # Before the stylesheet: the bundled faces (Sora for the wordmark, Inter for
+    # everything else) have to be in Qt's font database before anything asks for
+    # them, or Qt silently substitutes Segoe UI.
+    register_fonts()
     app.setStyleSheet(stylesheet())
 
+    from reel.single_instance import SingleInstance
+
     media = next((arg for arg in argv[1:] if not arg.startswith("-")), None)
+    single = SingleInstance()
+    if not single.acquire(media or ""):
+        return 0  # handed to the running window; nothing left to do
+
     window = MainWindow(media)
+
+    def _forward(path: str) -> None:
+        if path:
+            window.open_file(path)
+        window.showNormal()
+        window.raise_()
+        window.activateWindow()
+
+    single.message.connect(_forward)
     window.show()
 
-    return app.exec()
+    exit_code = app.exec()
+    single.close()
+    return exit_code
 
 
 if __name__ == "__main__":

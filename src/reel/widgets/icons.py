@@ -106,8 +106,9 @@ _MUTE_X = (
     _line([(19.6, 8.6), (14.4, 15.4)]),
 )
 
-# name -> ((path, filled), ...)
-_ICONS: dict[str, tuple[tuple[QPainterPath, bool], ...]] = {
+# name -> ((path, filled[, stroke]), ...). A third element overrides the pen width
+# for that shape only (the CC bowls need a thinner stroke than the family's 2px).
+_ICONS: dict[str, tuple[tuple, ...]] = {
     "play": ((_rounded_poly([(8.9, 5.9), (18.9, 12.0), (8.9, 18.1)], 1.7), True),),
     # 2.8 units of white between the bars: the previous 1.4 closed up entirely
     # once the bars were rounded, which made the icon a single blob.
@@ -180,15 +181,36 @@ _ICONS: dict[str, tuple[tuple[QPainterPath, bool], ...]] = {
         (_line([(14.6, 5.6), (14.6, 18.4)]), False),
         (_line([(14.6, 9.6), (20.6, 9.6)]), False),
     ),
-    # sliders, not a gear: readable at 24px and unmistakably "settings"
+    # Material "tune": three tracks, each *gapped* around its knob. The old
+    # version drew one continuous line behind the knobs, which read as mush at
+    # 24px - the gap is what makes it legible as a slider.
     "settings": (
-        (_line([(3.8, 6.8), (20.2, 6.8)]), False),
-        (_line([(3.8, 12.0), (20.2, 12.0)]), False),
-        (_line([(3.8, 17.2), (20.2, 17.2)]), False),
-        (_rrect(6.4, 4.6, 5.2, 4.4, 2.2), True),
-        (_rrect(12.4, 9.8, 5.2, 4.4, 2.2), True),
-        (_rrect(5.2, 15.0, 5.2, 4.4, 2.2), True),
+        (_line([(3.8, 6.6), (14.4, 6.6)]), False),
+        (_line([(17.6, 6.6), (20.2, 6.6)]), False),
+        (_rrect(15.4, 3.8, 2.0, 5.6, 1.0), True),
+        (_line([(3.8, 12.0), (6.6, 12.0)]), False),
+        (_line([(9.4, 12.0), (20.2, 12.0)]), False),
+        (_rrect(7.0, 9.2, 2.0, 5.6, 1.0), True),
+        (_line([(3.8, 17.4), (10.8, 17.4)]), False),
+        (_line([(13.6, 17.4), (20.2, 17.4)]), False),
+        (_rrect(11.2, 14.6, 2.0, 5.6, 1.0), True),
     ),
+    # Navigation glyphs for the file browser. Arrows share one shape: the shaft
+    # plus a chevron, so back/forward mirror exactly instead of drifting apart.
+    "home": (
+        (_line([(3.6, 11.0), (12.0, 4.0), (20.4, 11.0)]), False),
+        (_line([(5.6, 9.6), (5.6, 20.0), (18.4, 20.0), (18.4, 9.6)]), False),
+        (_line([(9.6, 20.0), (9.6, 14.2), (14.4, 14.2), (14.4, 20.0)]), False),
+    ),
+    "back": (
+        (_line([(19.4, 12.0), (5.0, 12.0)]), False),
+        (_line([(10.8, 6.2), (5.0, 12.0), (10.8, 17.8)]), False),
+    ),
+    "forward": (
+        (_line([(4.6, 12.0), (19.0, 12.0)]), False),
+        (_line([(13.2, 6.2), (19.0, 12.0), (13.2, 17.8)]), False),
+    ),
+    "chevron_down": ((_line([(7.4, 9.8), (12.0, 14.4), (16.6, 9.8)]), False),),
     # ---- transport / utility glyphs for the single-row bar ----------------
     "prev": (
         (_line([(6.6, 6.4), (6.6, 17.6)]), False),
@@ -204,18 +226,21 @@ _ICONS: dict[str, tuple[tuple[QPainterPath, bool], ...]] = {
         (_rrect(3.6, 12.0, 4.6, 7.0, 2.2), True),
         (_rrect(15.8, 12.0, 4.6, 7.0, 2.2), True),
     ),
+    # Material's folder, ported straight from the supplied SVG: outline 2..22 by
+    # 4..20, so the tab is a full 8 units wide with a chamfered shoulder - the
+    # flat wide tab is what keeps it from reading as a generic bucket at 18px.
     "folder": (
         (
-            _line(
+            _rounded_poly(
                 [
-                    (3.4, 18.4),
-                    (3.4, 6.6),
-                    (9.0, 6.6),
-                    (10.9, 9.2),
-                    (20.6, 9.2),
-                    (20.6, 18.4),
-                    (3.4, 18.4),
-                ]
+                    (3.0, 5.0),
+                    (9.0, 5.0),
+                    (11.0, 7.0),
+                    (21.0, 7.0),
+                    (21.0, 19.0),
+                    (3.0, 19.0),
+                ],
+                1.0,
             ),
             False,
         ),
@@ -234,10 +259,12 @@ _ICONS: dict[str, tuple[tuple[QPainterPath, bool], ...]] = {
         (_line([(12.0, 18.6), (12.0, 6.2)]), False),
         (_line([(6.8, 11.2), (12.0, 6.0), (17.2, 11.2)]), False),
     ),
+    # Closed captioning: two real "C" bowls instead of two floating bars. They
+    # are stroked thin (1.7) so the counter of each C stays open at 18px.
     "subtitles": (
-        (_rrect(3.4, 6.2, 17.2, 11.6, 2.6), False),
-        (_rrect(6.4, 13.2, 4.8, 2.2, 1.1), True),
-        (_rrect(12.4, 13.2, 5.2, 2.2, 1.1), True),
+        (_rrect(3.4, 5.6, 17.2, 12.8, 2.0), False),
+        (_arc((5.9, 9.2, 4.6, 5.6), 50, 260), False, 1.7),
+        (_arc((13.5, 9.2, 4.6, 5.6), 50, 260), False, 1.7),
     ),
     "speed": (
         (_arc((4.8, 5.0, 14.4, 14.4), 20, 140), False),
@@ -278,14 +305,22 @@ def paint_icon(
     painter.setPen(pen)
 
     brush = QColor(color)
-    for path, filled in shapes:
+    for shape in shapes:
+        path, filled = shape[0], shape[1]
+        width = shape[2] if len(shape) > 2 else None
         if filled:
             # No pen: a stroke around a filled shape widens it, which closed the
             # 2.8-unit gap between the pause bars down to 0.8.
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(brush)
         else:
-            painter.setPen(pen)
+            if width is None:
+                painter.setPen(pen)
+            else:
+                thin = QPen(QColor(color), width)
+                thin.setCapStyle(Qt.PenCapStyle.RoundCap)
+                thin.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                painter.setPen(thin)
             painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
 

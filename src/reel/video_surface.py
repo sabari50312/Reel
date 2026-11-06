@@ -109,10 +109,13 @@ class VideoSurface(QWidget):
         rect = self.rect()
         painter.fillRect(rect, QColor(tokens.HOME_TOP))
 
-        mark = QFont(tokens.FONT_FAMILY)
+        # The wordmark is the one place Reel speaks in a face of its own (Sora,
+        # bundled and registered at startup); the hint under it uses the same
+        # grotesk as the rest of the UI so the screen reads as one design.
+        mark = QFont(tokens.FONT_DISPLAY)
         mark.setPixelSize(max(26, min(46, rect.height() // 13)))
         mark.setWeight(QFont.Weight.DemiBold)
-        mark.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2.0)
+        mark.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1.2)
         painter.setFont(mark)
         painter.setPen(QColor(tokens.ACCENT_GREEN))
         mark_rect = QRect(rect)
@@ -122,7 +125,7 @@ class VideoSurface(QWidget):
         font = painter.font()
         font.setFamily(tokens.FONT_FAMILY)
         font.setPixelSize(tokens.FS_TIME)
-        font.setWeight(QFont.Weight.Normal)
+        font.setWeight(QFont.Weight.Medium)
         font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0.0)
         painter.setFont(font)
         painter.setPen(QColor(tokens.TEXT_DIM))

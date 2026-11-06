@@ -20,6 +20,12 @@ wheels = [
 ]
 
 [[package]]
+name = "nuitka"
+version = "4.3.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/19/9e0a68ea7bf6124843eaf2163430edc80569d4ce33511928e3958c960fb3/nuitka-4.3.4.tar.gz", hash = "sha256:e98e0c9a3224b581cf8ec0fab92b039b90fb7fa78673550c22833a82de444b25", size = 4779496, upload-time = "2026-11-01T07:44:15.061Z" }
+
+[[package]]
 name = "pyside6"
 version = "6.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -116,12 +122,20 @@ dependencies = [
     { name = "python-vlc" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "nuitka" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "av", specifier = ">=19.0.2" },
     { name = "pyside6", specifier = ">=6.12.0" },
     { name = "python-vlc", specifier = ">=3.0.21203" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "nuitka", specifier = ">=4.3.4" }]
 
 [[package]]
 name = "shiboken6"

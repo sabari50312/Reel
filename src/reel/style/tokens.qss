@@ -4,6 +4,7 @@
 
 QWidget {
     font-family: "$FONT_FAMILY";
+    font-weight: $WEIGHT_BODY;
     color: $TEXT;
     outline: 0;
 }
@@ -583,16 +584,50 @@ QPushButton#PromptSecondary:hover {
     color: $TEXT_FAINT;
 }
 
-#FilePanel QLabel#PanelPath {
+/* Editable directory bar in the file browser header. It reads as plain text
+   until it is clicked (or Ctrl+L), then turns into a normal field: a permanently
+   live text box next to the nav buttons looked like a search box. */
+#FilePanel QLineEdit#PanelAddress {
+    background: $PANEL_FIELD;
+    border: 1px solid $PANEL_FIELD_BORDER;
+    border-radius: ${RADIUS_CTL}px;
+    color: $TEXT_DIM;
+    font-size: ${FS_SMALL}px;
+    min-height: 24px;
+    padding: 4px 9px;
+    selection-background-color: $TRACK_HOVER;
+}
+
+#FilePanel QLineEdit#PanelAddress:read-only {
+    background: transparent;
+    border: 1px solid transparent;
+    color: $TEXT_DIM;
+}
+
+#FilePanel QLineEdit#PanelAddress:read-only:hover {
+    background: $PANEL_FIELD;
+    border: 1px solid $PANEL_FIELD_BORDER;
     color: $TEXT;
-    font-size: ${FS_TIME}px;
-    font-weight: $WEIGHT_SEMIBOLD;
+}
+
+#FilePanel QLineEdit#PanelAddress:focus {
+    border: 1px solid $ACCENT_GREEN;
+    color: $TEXT;
+}
+
+#FilePanel QLineEdit#PanelAddress[error="true"] {
+    border: 1px solid #e2554c;
+    color: $TEXT;
 }
 
 #FilePanel QLabel#PanelHint {
     color: $TEXT_FAINT;
     font-size: ${FS_SMALL}px;
     padding-left: 4px;
+}
+
+#FilePanel QLabel#PanelHint[error="true"] {
+    color: #e2554c;
 }
 
 #FilePanel QScrollBar:vertical {

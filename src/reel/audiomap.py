@@ -29,7 +29,9 @@ first, so it cannot analyse track 2 of a dual-audio file.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -41,10 +43,33 @@ try:  # C implementation, ~50x faster than a Python loop
 except ImportError:  # pragma: no cover - only if audioop leaves the stdlib
     audioop = None  # type: ignore[assignment]
 
-try:
-    import av  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - PyAV is a hard dependency of the map
-    av = None  # type: ignore[assignment]
+def _import_av():
+    """Import PyAV, putting its bundled FFmpeg DLLs on the search path first.
+
+    PyAV ships those DLLs in `av.libs` beside the package, and its `__init__`
+    registers that folder - but a frozen build never runs that code, so the
+    import failed silently there and every film showed "no sound map". Both
+    layouts are covered here: next to the package (installed) and next to the
+    executable (frozen).
+    """
+    if sys.platform == "win32":
+        candidates = [Path(sys.executable).resolve().parent / "av.libs"]
+        spec = importlib.util.find_spec("av")
+        if spec is not None and spec.origin:
+            candidates.append(Path(spec.origin).resolve().parent.parent / "av.libs")
+        for candidate in candidates:
+            if candidate.is_dir():
+                try:
+                    os.add_dll_directory(str(candidate))
+                except OSError:
+                    pass
+    global _av_error
+    try:
+        import av as module  # type: ignore[import-not-found]
+    except Exception as error:  # noqa: BLE001 - record and degrade
+        _av_error = repr(error)
+        return None
+    return module
 
 BUCKET_S = 0.25  # one band per quarter second: fine enough to show a pause
 SAMPLE_RATE = 16_000
@@ -88,6 +113,8 @@ def _log(message: str) -> None:
             continue
 
 
+_av_error: str | None = None
+
 _cache: dict[tuple[str, int | None], list[int]] = {}
 _cache_lock = threading.Lock()
 
@@ -108,6 +135,11 @@ def _stat_of(path: str) -> str:
     except OSError:
         return ""
     return f"{info.st_size}:{int(info.st_mtime)}"
+
+
+av = _import_av()
+if av is None:
+    _log(f"map: PyAV unavailable ({_av_error})")
 
 
 def _rms(fragment: bytes) -> float:

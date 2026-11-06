@@ -9,8 +9,8 @@ hardcode a color, a padding or an animation duration: add a token here instead.
 BG = "#0b0d10"  # window fill outside the video
 VIDEO_BG = "#000000"  # letterbox fill behind the native HWND
 TEXT = "#f2f4f7"
-TEXT_DIM = "#9aa4af"
-TEXT_FAINT = "#6b7683"
+TEXT_DIM = "#a5afba"
+TEXT_FAINT = "#79838f"
 
 ACCENT = "#f2f4f7"  # knob and primary button (white)
 ACCENT_GREEN = "#35d07f"  # app accent: logo, played audio, seek-bar blocks
@@ -29,8 +29,13 @@ TOAST_BG = "#d1000000"
 
 # The floating bar is its own card now (the reference has no gradient scrim).
 HOME_TOP = "#22262b"  # empty-state surface: Material dark container, lifted off black
-BAR_BG = "#f00a0b0e"  # control bar fill                 (near-black @ 94%)
-BAR_BORDER = "#14ffffff"  # card hairline                    (white @ 8%)
+# Control bar: translucent on purpose. The strip is a separate layered top-level
+# window above the native video HWND, so real alpha blends with the frames (and
+# the subtitles) behind it. The card darkens towards its bottom edge - timecodes
+# and the seek rail sit low, where bright frames would otherwise wash them out.
+BAR_BG = "#b30a0b0e"  # control bar fill, top edge          (near-black @ 70%)
+BAR_BG_END = "#cc0a0b0e"  # control bar fill, bottom edge     (near-black @ 80%)
+BAR_BORDER = "#24ffffff"  # card hairline                    (white @ 14%)
 MENU_BG = "#f70d0f12"  # popup background                (near-black @ 97%)
 MENU_BORDER = "#1affffff"
 SEP = "#18ffffff"  # dividers inside popups           (white @ 9%)
@@ -56,7 +61,15 @@ OVERLAY_H = 84  # strip the overlay reserves: BAR_H + top/bottom margin
 FS_TIME = 13
 FS_TITLE = 12
 FS_SMALL = 11  # menu helper text, tooltips
-FONT_FAMILY = "Segoe UI"
+# Body weight. The app draws most of its text at 11-13px on a near-black
+# background, and the control bar sits on a layered window, so Qt falls back to
+# grayscale antialiasing there: Regular reads as if it were greyed out. 500 is the
+# bundled Medium, so this is a real weight, not a synthesised one.
+WEIGHT_BODY = "500"
+FONT_FAMILY = "Inter"  # bundled, see reel/assets/fonts
+# Wordmark face only. Bundled Sora SemiBold (src/reel/assets/fonts) and registered
+# at startup by reel/fonts.py.
+FONT_DISPLAY = "Sora"
 FONT_MONO = "Consolas"  # tabular timecodes: digits do not jitter while playing
 
 BAR_H = 72  # floating control card height (everything in one row)
@@ -112,12 +125,14 @@ QSS_VARS = {
     "BTN_ACTIVE": BTN_ACTIVE,
     "TITLEBAR": TITLEBAR,
     "BAR_BG": BAR_BG,
+    "BAR_BG_END": BAR_BG_END,
     "BAR_BORDER": BAR_BORDER,
     "MENU_BG": MENU_BG,
     "MENU_BORDER": MENU_BORDER,
     "SEP": SEP,
     "FS_SMALL": str(FS_SMALL),
     "WEIGHT_SEMIBOLD": "600",
+    "WEIGHT_BODY": WEIGHT_BODY,
     "RADIUS_CTL": str(RADIUS_CTL),
     "FS_TIME": str(FS_TIME),
     "FS_TITLE": str(FS_TITLE),

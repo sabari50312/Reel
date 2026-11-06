@@ -19,7 +19,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QMouseEvent, QPaintEvent, QPainter, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QLinearGradient,
+    QMouseEvent,
+    QPaintEvent,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import QAbstractButton, QHBoxLayout, QLabel, QWidget
 
 from ..style import tokens
@@ -327,8 +337,16 @@ class ControlBar(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         card = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        # Translucent card. The strip is its own layered window over the native
+        # video HWND, so this alpha is real: frames (and the subtitles libVLC
+        # draws) show through. The fill darkens towards the bottom edge, where the
+        # timecodes and the seek rail sit - flat 75% over a bright scene turned
+        # them into mush.
+        fill = QLinearGradient(card.topLeft(), card.bottomLeft())
+        fill.setColorAt(0.0, QColor(tokens.BAR_BG))
+        fill.setColorAt(1.0, QColor(tokens.BAR_BG_END))
         painter.setPen(QPen(QColor(tokens.BAR_BORDER), 1.0))
-        painter.setBrush(QColor(tokens.BAR_BG))
+        painter.setBrush(QBrush(fill))
         painter.drawRoundedRect(card, tokens.BAR_RADIUS, tokens.BAR_RADIUS)
         painter.end()
 

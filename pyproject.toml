@@ -19,3 +19,8 @@ packages = ["src/reel"]
 
 [tool.uv]
 package = true
+
+[dependency-groups]
+dev = [
+    "nuitka>=4.3.4",
+]

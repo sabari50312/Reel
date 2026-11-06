@@ -313,6 +313,7 @@ class SeekBar(QWidget):
         text = format_time(self._position_for(self._hover_x), needs_hours(self._duration))
         font = QFont(tokens.FONT_FAMILY)
         font.setPixelSize(tokens.FS_TITLE)
+        font.setWeight(QFont.Weight.Medium)
         painter.setFont(font)
         width = painter.fontMetrics().horizontalAdvance(text) + 14.0
         height = min(float(tokens.BUBBLE_H) - 2.0, y - thickness / 2.0 - 3.0)

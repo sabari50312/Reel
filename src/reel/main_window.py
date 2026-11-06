@@ -201,6 +201,9 @@ class MainWindow(QMainWindow):
         self.controls.files_requested.connect(self._toggle_files)
         self.files.file_chosen.connect(self._on_file_chosen)
         self.files.menu_requested.connect(self._show_menu)
+        # Remember the browsed folder, not just the folder of the last film: the
+        # drawer should reopen where browsing stopped, even if nothing was played.
+        self.files.directory_changed.connect(self._remember_directory)
 
         self._shortcuts = shortcuts.attach(self, self.settings)  # keep the router alive
         # Cursors are created after QApplication exists - QCursor is a QGuiApplication
@@ -305,6 +308,10 @@ class MainWindow(QMainWindow):
         self.settings.set("window_maximized", self.isMaximized())
 
     # -------------------------------------------------------------------- media
+    def _remember_directory(self, folder: str) -> None:
+        if folder:
+            self.settings.set("files.last_dir", folder)
+
     def open_file(self, path: str) -> None:
         self._remember_position()  # the outgoing file keeps its place
         self.files.close_panel()

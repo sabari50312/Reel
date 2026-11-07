@@ -38,6 +38,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, Signal
 
+from .settings import cache_dir
+
 try:  # C implementation, ~50x faster than a Python loop
     import audioop  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - only if audioop leaves the stdlib
@@ -299,7 +301,15 @@ class AudioMapStore:
     """Tiny cache of loudness maps, keyed by path with size+mtime for validity."""
 
     def __init__(self) -> None:
-        self._store = QSettings()
+        # A cache, so it does not live with the settings: it can be thrown away
+        # and rebuilt, and a few megabytes of levels have no business in the INI
+        # a user might open and read.
+        path = cache_dir() / "audiomap.ini"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # read-only profile: the cache simply never hits
+        self._store = QSettings(str(path), QSettings.Format.IniFormat)
         self._store.beginGroup(STORE_GROUP)
 
     def get(self, path: str, track_index: int | None = None) -> list[int] | None:

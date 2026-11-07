@@ -106,7 +106,8 @@ def main(argv: list[str] | None = None) -> int:
             "Install VLC 3 from videolan.org, then start Reel again.",
         )
         return 1
-    # QSettings' native backend keys on these: HKCU\Software\Reel\Reel
+    # Qt's standard paths and dialog titles key on these. Reel's own settings do
+    # not: they are an INI under %APPDATA% (see reel.settings.settings_path).
     app.setOrganizationName("Reel")
     app.setApplicationName("Reel")
     app.setApplicationDisplayName("Reel")

@@ -1,18 +1,19 @@
-"""Persistent preferences, behind a typed facade.
+r"""Persistent preferences, behind a typed facade.
 
 Two rules that stop this module from leaking into the rest of the app:
 
   1. **Nobody else touches QSettings.** Callers ask for `settings.get("volume")`
      and get an int, or call `settings.set("volume", 80)` and get it clamped. Keys,
      defaults and limits all live in `SPECS`, one place to read.
-  2. **Storage is decided at runtime, not compiled in.** Installed builds use the
-     native Windows registry (HKCU\\Software\\Reel\\Reel); a build with a file named
+  2. **Storage is decided at runtime, not compiled in.** Installed builds keep a
+     per-user INI at `%APPDATA%\Reel\settings.ini`; a build with a file named
      `reel.portable` next to the exe keeps everything in `reel.ini` beside it. Same
      code either way, so the portable/installable question is settled by packaging.
 
-No JSON: QSettings gives type conversion, atomic-ish writes and registry/INI
-backends for free. Values are read back through `value(key, default)`, so a
-hand-edited or corrupted file can only ever produce a default, never a crash.
+No JSON, no registry: QSettings gives type conversion, atomic-ish writes and INI
+files for free, and a plain file is something a user can find, read and delete.
+Values are read back through `value(key, default)`, so a hand-edited or corrupted
+file can only ever produce a default, never a crash.
 
 Live-apply: `changed(key)` fires after a value really changed, and only then.
 That is what the settings UI will listen to, so no OK/Apply buttons are needed.
@@ -29,11 +30,18 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QSettings, QTimer, Signal
 
+from .paths import local_app_dir
+
 PORTABLE_MARKER = "reel.portable"
 PORTABLE_INI = "reel.ini"
-
-ORGANIZATION = "Reel"
-APPLICATION = "Reel"
+SETTINGS_DIR = "Reel"
+SETTINGS_INI = "settings.ini"
+# Where 0.0.1 kept its settings. Read once, copied into the INI, never touched
+# again: an upgrade that deletes user data is worse than a stale key.
+LEGACY_REGISTRY = r"HKEY_CURRENT_USER\Software\Reel\Reel"
+# Caches that ended up in the same key are large and rebuild themselves, so they
+# are the one thing worth leaving behind rather than copying.
+_LEGACY_SKIP = ("audio_map/",)
 
 SettingValue = bool | int | str | list[str]
 
@@ -114,6 +122,56 @@ def is_portable() -> bool:
     return (_base_dir() / PORTABLE_MARKER).exists()
 
 
+def cache_dir() -> Path:
+    """Folder for data that can be rebuilt (loudness maps).
+
+    Portable builds promise that nothing lands outside the app folder, so the
+    cache goes next to the exe there; otherwise it belongs in LOCALAPPDATA,
+    where a user deleting it costs a re-analysis and nothing else.
+    """
+    return _base_dir() if is_portable() else local_app_dir()
+
+
+def settings_path() -> Path:
+    r"""Per-user settings file: %APPDATA%\Reel\settings.ini.
+
+    Roaming rather than local, because these are preferences rather than a cache
+    and a roaming profile should carry them. The fallback covers a stripped
+    environment where APPDATA is not set at all.
+    """
+    base = os.environ.get("APPDATA")
+    root = Path(base) if base else Path.home() / "AppData" / "Roaming"
+    return root / SETTINGS_DIR / SETTINGS_INI
+
+
+def _copy_keys(source: QSettings, target: Path) -> None:
+    """Copy every key from `source` into the INI at `target`.
+
+    QSettings flattens groups with '/', so a straight key-for-key copy keeps the
+    layout. The source is read only: if anything about this goes wrong the old
+    values are still where they were, and a missing key just means a default.
+    """
+    keys = [key for key in source.allKeys() if not key.startswith(_LEGACY_SKIP)]
+    if not keys:
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    dest = QSettings(str(target), QSettings.Format.IniFormat)
+    for key in keys:
+        if not dest.contains(key):  # never overwrite a file that already has an opinion
+            dest.setValue(key, source.value(key))
+    dest.sync()
+
+
+def _migrate_legacy(target: Path) -> None:
+    """Pull 0.0.1's registry settings into the INI, once."""
+    try:
+        _copy_keys(QSettings(LEGACY_REGISTRY, QSettings.Format.NativeFormat), target)
+    except OSError:
+        # No permission is not worth failing a launch over: the app starts on
+        # defaults and the next save writes the file if it can.
+        pass
+
+
 def _coerce(spec: Spec, raw: object) -> SettingValue:
     """Turn whatever a hand-edited store contains into the declared type."""
     default = spec.default
@@ -180,7 +238,7 @@ class Settings(QObject):
         self._dirty = False
 
         # Volume arrives in bursts (wheel, held key, slider drag). Writing the
-        # registry on every tick is wasteful, so the flush is debounced.
+        # file on every tick is wasteful, so the flush is debounced.
         self._save = QTimer(self)
         self._save.setSingleShot(True)
         self._save.setInterval(SAVE_DEBOUNCE_MS)
@@ -192,7 +250,11 @@ class Settings(QObject):
             return QSettings(str(path), QSettings.Format.IniFormat)
         if is_portable():
             return QSettings(str(_base_dir() / PORTABLE_INI), QSettings.Format.IniFormat)
-        return QSettings()  # native: HKCU\Software\<org>\<app>
+        target = settings_path()
+        if not target.exists():
+            _migrate_legacy(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return QSettings(str(target), QSettings.Format.IniFormat)
 
     def location(self) -> str:
         """Where values actually live - shown in the settings UI later."""
@@ -333,9 +395,7 @@ class ResumeStore:
 
 
 __all__ = [
-    "APPLICATION",
     "DEFAULTS",
-    "ORGANIZATION",
     "PORTABLE_MARKER",
     "ResumeStore",
     "SettingValue",
@@ -343,5 +403,7 @@ __all__ = [
     "SPECS",
     "SPECS_BY_KEY",
     "Settings",
+    "cache_dir",
     "is_portable",
+    "settings_path",
 ]

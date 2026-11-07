@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://github.com/sabari50312/Reel"><img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square&logo=windows11&logoColor=white"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.0.1-2F6FED?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-2F6FED?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="libVLC" src="https://img.shields.io/badge/libVLC-3.x-FF8800?style=flat-square&logo=vlc&logoColor=white">
   <img alt="Licence" src="https://img.shields.io/badge/licence-MIT-3DA639?style=flat-square">
